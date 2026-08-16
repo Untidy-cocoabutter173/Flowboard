@@ -31,6 +31,8 @@ describe('Flowboard HTTP API', () => {
     const allowed = await app.inject({ method: 'GET', url: '/v1/snapshot', headers: { authorization: 'Bearer http-token' } })
     expect(allowed.statusCode).toBe(200)
     expect(allowed.json().projects).toHaveLength(1)
+    const summary = await app.inject({ method: 'GET', url: '/v1/summary', headers: { authorization: 'Bearer http-token' } })
+    expect(summary.json()).toMatchObject({ apiVersion: 2, counts: { projects: 1 } })
   })
 
   it('执行命令并通过游标读取变更', async () => {
@@ -43,8 +45,9 @@ describe('Flowboard HTTP API', () => {
 
   it('音频票据只能使用一次并返回上传 CORS', async () => {
     const actor = repository.authenticate('http-token')
-    const meeting = repository.execute(actor, { idempotencyKey: 'http-meeting-create', type: 'meeting.create', payload: { projectId: 'project-local', title: '周会' } })
-    const ticketResponse = await app.inject({ method: 'POST', url: '/v1/uploads/tickets', headers: { authorization: 'Bearer http-token' }, payload: { meetingId: meeting.entityId, contentType: 'audio/webm', size: 4 } })
+    const meeting = repository.execute(actor, { idempotencyKey: 'http-meeting-create', type: 'meeting.create', payload: { teamId: 'team-local', projectIds: ['project-local'], title: '周会' } })
+    repository.execute(actor, { idempotencyKey: 'http-meeting-start', type: 'meeting.update', expectedVersion: 1, payload: { id: meeting.entityId, status: 'live' } })
+    const ticketResponse = await app.inject({ method: 'POST', url: '/v1/uploads/tickets', headers: { authorization: 'Bearer http-token' }, payload: { meetingId: meeting.entityId, contentType: 'audio/webm', size: 4, clientSegmentId: 'http-segment-1' } })
     const ticket = ticketResponse.json() as { uploadUrl: string }
     const path = new URL(ticket.uploadUrl).pathname
     const options = await app.inject({ method: 'OPTIONS', url: path })

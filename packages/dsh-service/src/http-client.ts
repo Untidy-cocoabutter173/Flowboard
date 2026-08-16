@@ -10,6 +10,7 @@ import type {
   TranscriptionView,
   UploadTicketRequest,
   UploadTicketResult,
+  WorkspaceSummary,
 } from '@flowboard/contracts'
 
 export class FlowboardRemoteError extends Error {
@@ -35,8 +36,16 @@ export class FlowboardHttpClient {
   }
 
   snapshot(request: SnapshotRequest, signal?: AbortSignal): Promise<FlowboardSnapshot> {
-    const query = request.projectId === undefined ? '' : `?projectId=${encodeURIComponent(request.projectId)}`
-    return this.request(`/v1/snapshot${query}`, { method: 'GET' }, signal)
+    const query = new URLSearchParams()
+    if (request.projectId !== undefined) query.set('projectId', request.projectId)
+    if (request.meetingId !== undefined) query.set('meetingId', request.meetingId)
+    if (request.compact !== undefined) query.set('compact', String(request.compact))
+    const suffix = query.size === 0 ? '' : `?${query}`
+    return this.request(`/v1/snapshot${suffix}`, { method: 'GET' }, signal)
+  }
+
+  summary(signal?: AbortSignal): Promise<WorkspaceSummary> {
+    return this.request('/v1/summary', { method: 'GET' }, signal)
   }
 
   command(request: CommandRequest, signal?: AbortSignal): Promise<CommandResult> {

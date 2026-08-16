@@ -6,6 +6,10 @@ import {
   snapshotRequestSchema,
   transcriptionRequestSchema,
   uploadTicketRequestSchema,
+  type CommandRequest,
+  type SnapshotRequest,
+  type TranscriptionRequest,
+  type UploadTicketRequest,
 } from '@flowboard/contracts'
 import { FlowboardHttpClient, type HttpClientConfig } from './http-client.ts'
 import { registerFlowboardTools } from './tools.ts'
@@ -26,17 +30,17 @@ export class FlowboardService extends TypertRemoteService {
     super(ctx, 'flowboard')
     if (config.apiBase.trim() === '' || config.token.length < 8) throw new Error('Flowboard apiBase and an access token of at least 8 characters are required')
     this.client = new FlowboardHttpClient(config)
-    registerFlowboardTools(ctx, this)
+    registerFlowboardTools(ctx, this.client)
   }
 
   @Remote('snapshot')
   async remoteSnapshot(requestJson: string, signal: AbortSignal): Promise<string> {
-    return JSON.stringify(await this.client.snapshot(snapshotRequestSchema.parse(JSON.parse(requestJson)), signal))
+    return JSON.stringify(await this.client.snapshot(snapshotRequestSchema.parse(JSON.parse(requestJson) as SnapshotRequest), signal))
   }
 
   @Remote('command')
   async remoteCommand(requestJson: string, signal: AbortSignal): Promise<string> {
-    return JSON.stringify(await this.client.command(commandRequestSchema.parse(JSON.parse(requestJson)), signal))
+    return JSON.stringify(await this.client.command(commandRequestSchema.parse(JSON.parse(requestJson) as CommandRequest), signal))
   }
 
   @Remote('changes')
@@ -46,12 +50,12 @@ export class FlowboardService extends TypertRemoteService {
 
   @Remote('createUploadTicket')
   async remoteCreateUploadTicket(requestJson: string, signal: AbortSignal): Promise<string> {
-    return JSON.stringify(await this.client.createUploadTicket(uploadTicketRequestSchema.parse(JSON.parse(requestJson)), signal))
+    return JSON.stringify(await this.client.createUploadTicket(uploadTicketRequestSchema.parse(JSON.parse(requestJson) as UploadTicketRequest), signal))
   }
 
   @Remote('transcription')
   async remoteTranscription(requestJson: string, signal: AbortSignal): Promise<string> {
-    return JSON.stringify(await this.client.transcription(transcriptionRequestSchema.parse(JSON.parse(requestJson)), signal))
+    return JSON.stringify(await this.client.transcription(transcriptionRequestSchema.parse(JSON.parse(requestJson) as TranscriptionRequest), signal))
   }
 }
 

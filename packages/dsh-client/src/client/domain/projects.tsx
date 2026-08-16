@@ -20,8 +20,9 @@ export function ProjectsView({ snapshot, selectedProjectId, selectProject, comma
     })}</div>
     {snapshot.projects.length === 0 && <div className={css.empty}><strong>还没有项目</strong><span>创建项目后即可组织任务、会议与资料。</span></div>}
 
-    <EntityModal open={dialog?.type === 'create'} title="新建项目" submitLabel="创建" onClose={() => setDialog(null)} onSubmit={async data => command({ type: 'project.create', payload: { teamId: String(data.get('teamId')), name: String(data.get('name')), description: String(data.get('description') ?? '') } })}>
+    <EntityModal open={dialog?.type === 'create'} title="新建项目" submitLabel="创建" onClose={() => setDialog(null)} onSubmit={async data => command({ type: 'project.create', payload: { teamId: String(data.get('teamId')), key: String(data.get('key')), name: String(data.get('name')), description: String(data.get('description') ?? '') } })}>
       <Field label="所属团队"><select name="teamId" required>{snapshot.teams.map(team => <option key={team.id} value={team.id}>{team.name}</option>)}</select></Field>
+      <Field label="项目 Key" hint="2-12 位英文或数字，例如 FLOW"><Input name="key" required maxLength={12} /></Field>
       <Field label="项目名称"><Input name="name" required autoFocus maxLength={240} /></Field>
       <Field label="项目描述"><textarea name="description" rows={4} maxLength={2000} /></Field>
     </EntityModal>

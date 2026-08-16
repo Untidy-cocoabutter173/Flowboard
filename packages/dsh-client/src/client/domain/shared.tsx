@@ -3,7 +3,7 @@ import { Button, Modal, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ClientCommand } from '../controller.ts'
 import css from '../flowboard.module.css'
 
-export type CommandHandler = (value: ClientCommand) => Promise<void>
+export type CommandHandler = (value: ClientCommand) => Promise<unknown>
 
 export function PageHeader({ title, meta, actions }: { title: string; meta?: ReactNode; actions?: ReactNode }) {
   return <header className={css.sectionHeader}><div><h2>{title}</h2>{meta !== undefined && <p>{meta}</p>}</div><div className={css.headerActions}>{actions}</div></header>
@@ -26,7 +26,7 @@ export function EntityModal({ open, title, submitLabel, onClose, onSubmit, child
   title: string
   submitLabel: string
   onClose: () => void
-  onSubmit: (data: FormData) => Promise<void>
+  onSubmit: (data: FormData) => Promise<unknown>
   children: ReactNode
   danger?: boolean
 }) {
@@ -59,7 +59,7 @@ export function ConfirmDialog({ open, title, detail, confirmLabel = '删除', on
   detail: string
   confirmLabel?: string
   onClose: () => void
-  onConfirm: () => Promise<void>
+  onConfirm: () => Promise<unknown>
 }) {
   return <EntityModal open={open} title={title} submitLabel={confirmLabel} onClose={onClose} danger onSubmit={onConfirm}>
     <p className={css.confirmText}>{detail}</p>

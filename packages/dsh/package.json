@@ -1,6 +1,6 @@
 {
   "name": "@flowboard/dsh",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "author": "构序科技",
   "description": "构序科技面向 DeepSeek Harness 的团队任务与会议协作插件",
   "type": "module",

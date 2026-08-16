@@ -19,7 +19,9 @@ describe('SqliteFlowboardRepository', () => {
     const snapshot = repository.snapshot(actor, {})
     expect(snapshot.actor.name).toBe('测试负责人')
     expect(snapshot.projects.map(project => project.id)).toEqual(['project-local'])
-    expect(snapshot.columns).toHaveLength(3)
+    expect(snapshot.apiVersion).toBe(2)
+    expect(snapshot.workflowStatuses).toHaveLength(3)
+    expect(snapshot.savedViews.map(view => view.type).sort()).toEqual(['board', 'table'])
   })
 
   it('同一幂等命令只执行一次，复用键发送不同命令会冲突', () => {
@@ -31,6 +33,14 @@ describe('SqliteFlowboardRepository', () => {
     expect(repository.snapshot(actor, {}).tasks).toHaveLength(1)
     expect(() => repository.execute(actor, { ...request, payload: { ...request.payload, title: '另一个任务' } }))
       .toThrowError(expect.objectContaining({ code: 'CONFLICT' }))
+  })
+
+  it('会议范围快照只返回关联项目，summary 使用聚合计数', () => {
+    const actor = repository.authenticate('test-token')
+    repository.execute(actor, { idempotencyKey: 'project-create-second', type: 'project.create', payload: { teamId: 'team-local', key: 'NEXT', name: '第二项目' } })
+    const meeting = repository.execute(actor, { idempotencyKey: 'meeting-create-scoped', type: 'meeting.create', payload: { teamId: 'team-local', projectIds: ['project-local'], title: '范围会议' } })
+    expect(repository.snapshot(actor, { meetingId: meeting.entityId }).projects.map(project => project.id)).toEqual(['project-local'])
+    expect(repository.summary(actor).counts).toMatchObject({ projects: 2, meetings: 1, tasks: 0, documents: 0, people: 1 })
   })
 
   it('更新必须携带当前版本，并记录版本、审计和变更游标', () => {
@@ -50,7 +60,7 @@ describe('SqliteFlowboardRepository', () => {
   it('租户之间不能读取项目', () => {
     const stamp = new Date().toISOString()
     db.prepare('INSERT INTO tenants(id,name,created_at) VALUES (?,?,?)').run('tenant-other', '其他租户', stamp)
-    db.prepare('INSERT INTO users(id,tenant_id,name,created_at) VALUES (?,?,?,?)').run('user-other', 'tenant-other', '其他用户', stamp)
+    db.prepare('INSERT INTO users(id,tenant_id,name,created_at,updated_at) VALUES (?,?,?,?,?)').run('user-other', 'tenant-other', '其他用户', stamp, stamp)
     db.prepare('INSERT INTO api_tokens(token_hash,tenant_id,user_id,label,created_at) VALUES (?,?,?,?,?)').run(tokenHash('other-token'), 'tenant-other', 'user-other', 'test', stamp)
     const other = repository.authenticate('other-token')
     expect(repository.snapshot(other, {}).projects).toEqual([])

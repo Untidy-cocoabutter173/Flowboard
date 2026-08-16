@@ -20,10 +20,11 @@ describe('转写 worker', () => {
 
   async function job(): Promise<{ id: string; path: string }> {
     const actor = repository.authenticate('worker-token')
-    const meeting = repository.execute(actor, { idempotencyKey: crypto.randomUUID(), type: 'meeting.create', payload: { projectId: 'project-local', title: '转写测试' } })
+    const meeting = repository.execute(actor, { idempotencyKey: crypto.randomUUID(), type: 'meeting.create', payload: { teamId: 'team-local', projectIds: ['project-local'], title: '转写测试' } })
+    repository.execute(actor, { idempotencyKey: crypto.randomUUID(), type: 'meeting.update', expectedVersion: 1, payload: { id: meeting.entityId, status: 'live' } })
     const path = join(directory, `${meeting.entityId}.webm`)
     await writeFile(path, 'audio')
-    const ticket = repository.createUploadTicket(actor, { meetingId: meeting.entityId, contentType: 'audio/webm', size: 5 })
+    const ticket = repository.createUploadTicket(actor, { meetingId: meeting.entityId, contentType: 'audio/webm', size: 5, clientSegmentId: crypto.randomUUID() })
     const token = decodeURIComponent(new URL(ticket.uploadUrl).pathname.split('/').at(-1)!)
     return { id: repository.consumeUploadTicket(token, 5, path, 'audio/webm'), path }
   }

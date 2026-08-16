@@ -67,10 +67,18 @@ export function buildServer(options: ServerOptions): FastifyInstance {
   })
 
   app.get('/health', async () => ({ ok: true }))
+  app.get('/v1/summary', async request => {
+    const actor = options.repository.authenticate(tokenOf(request))
+    return options.repository.summary(actor)
+  })
   app.get('/v1/snapshot', async request => {
     const actor = options.repository.authenticate(tokenOf(request))
-    const query = request.query as { projectId?: string }
-    return options.repository.snapshot(actor, snapshotRequestSchema.parse({ projectId: query.projectId }))
+    const query = request.query as { projectId?: string; meetingId?: string; compact?: string }
+    return options.repository.snapshot(actor, snapshotRequestSchema.parse({
+      ...(query.projectId === undefined ? {} : { projectId: query.projectId }),
+      ...(query.meetingId === undefined ? {} : { meetingId: query.meetingId }),
+      ...(query.compact === undefined ? {} : { compact: query.compact === 'true' }),
+    }))
   })
   app.post('/v1/commands', async request => {
     const actor = options.repository.authenticate(tokenOf(request))

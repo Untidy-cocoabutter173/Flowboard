@@ -1,22 +1,44 @@
 import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
-import type { CommandRequest, FlowboardSnapshot, TranscriptionView } from '@flowboard/contracts'
+import type { CommandRequest, CommandResult, FlowboardSnapshot, TranscriptionView } from '@flowboard/contracts'
 import { FlowboardRemoteClient } from './remote.ts'
 
-export type FlowboardSection = 'projects' | 'board' | 'meetings' | 'library' | 'calendar' | 'people'
+export type ProjectTab = 'overview' | 'board' | 'table' | 'meetings' | 'library' | 'members'
+export type PersonalTab = 'tasks' | 'calendar' | 'board'
+export type OrganizationTab = 'people' | 'teams'
+export type FlowboardRoute =
+  | { area: 'home' }
+  | { area: 'projects'; projectId: string | null; tab: ProjectTab }
+  | { area: 'meetings'; meetingId: string | null }
+  | { area: 'library'; libraryId: string | null }
+  | { area: 'my'; tab: PersonalTab }
+  | { area: 'organization'; tab: OrganizationTab }
+
 export type ClientCommand = CommandRequest extends infer Command
   ? Command extends CommandRequest ? Omit<Command, 'idempotencyKey'> : never
   : never
+
+export interface MeetingRuntime {
+  meetingId: string | null
+  recording: boolean
+  uploading: boolean
+  candidate: string
+  awaitingConsumption: boolean
+  error: string | null
+}
+
 export interface FlowboardState {
   status: 'loading' | 'ready' | 'error'
   snapshot: FlowboardSnapshot | null
-  selectedProjectId: string | null
-  section: FlowboardSection
+  route: FlowboardRoute
+  meetingRuntimes: Record<string, MeetingRuntime>
   busy: boolean
   error: string | null
 }
 
+const emptyRuntime = (): MeetingRuntime => ({ meetingId: null, recording: false, uploading: false, candidate: '', awaitingConsumption: false, error: null })
+
 export class FlowboardController implements HostObservable<FlowboardState> {
-  private state: FlowboardState = { status: 'loading', snapshot: null, selectedProjectId: null, section: 'board', busy: false, error: null }
+  private state: FlowboardState = { status: 'loading', snapshot: null, route: { area: 'home' }, meetingRuntimes: {}, busy: false, error: null }
   private readonly listeners = new Set<() => void>()
   private abort = new AbortController()
 
@@ -26,33 +48,35 @@ export class FlowboardController implements HostObservable<FlowboardState> {
     this.listeners.add(listener)
     return () => this.listeners.delete(listener)
   }
-  start(): void {
-    void this.run()
+  start(): void { void this.run() }
+  dispose(): void { this.abort.abort(); this.listeners.clear() }
+  navigate = (route: FlowboardRoute): void => this.update({ route })
+  meetingRuntime = (sessionId: string): MeetingRuntime => this.state.meetingRuntimes[sessionId] ?? emptyRuntime()
+  setMeetingRuntime = (sessionId: string, patch: Partial<MeetingRuntime>): void => {
+    const current = this.meetingRuntime(sessionId)
+    this.update({ meetingRuntimes: { ...this.state.meetingRuntimes, [sessionId]: { ...current, ...patch } } })
   }
-  dispose(): void {
-    this.abort.abort()
-    this.listeners.clear()
-  }
-  selectProject = (id: string): void => this.update({ selectedProjectId: id })
-  selectSection = (section: FlowboardSection): void => this.update({ section })
 
   async refresh(): Promise<void> {
     const snapshot = await this.remote.snapshot({}, this.abort.signal)
-    const selected = this.state.selectedProjectId
-    this.update({
-      snapshot,
-      status: 'ready',
-      selectedProjectId: selected !== null && snapshot.projects.some(project => project.id === selected)
-        ? selected : snapshot.projects[0]?.id ?? null,
-      error: null,
-    })
+    let route = this.state.route
+    if (route.area === 'projects') {
+      const projectId = route.projectId
+      if (projectId !== null && !snapshot.projects.some(project => project.id === projectId)) route = { area: 'projects', projectId: snapshot.projects[0]?.id ?? null, tab: route.tab }
+    }
+    if (route.area === 'meetings') {
+      const meetingId = route.meetingId
+      if (meetingId !== null && !snapshot.meetings.some(meeting => meeting.id === meetingId)) route = { area: 'meetings', meetingId: null }
+    }
+    this.update({ snapshot, status: 'ready', route, error: null })
   }
 
-  async command(command: ClientCommand): Promise<void> {
+  async command(command: ClientCommand): Promise<CommandResult> {
     this.update({ busy: true, error: null })
     try {
-      await this.remote.command({ ...command, idempotencyKey: crypto.randomUUID() } as CommandRequest, this.abort.signal)
+      const result = await this.remote.command({ ...command, idempotencyKey: crypto.randomUUID() } as CommandRequest, this.abort.signal)
       await this.refresh()
+      return result
     } catch (error) {
       this.fail(error)
       throw error
@@ -61,28 +85,17 @@ export class FlowboardController implements HostObservable<FlowboardState> {
     }
   }
 
-  async uploadMeetingAudio(meetingId: string, blob: Blob): Promise<TranscriptionView> {
-    this.update({ busy: true, error: null })
-    try {
-      const contentType = blob.type || 'audio/webm'
-      const ticket = await this.remote.createUploadTicket({ meetingId, contentType, size: blob.size }, this.abort.signal)
-      const response = await fetch(ticket.uploadUrl, { method: 'PUT', headers: { 'content-type': contentType }, body: blob, signal: this.abort.signal })
-      if (!response.ok) throw new Error(`Audio upload failed with HTTP ${response.status}`)
-      const { jobId } = await response.json() as { jobId: string }
-      for (;;) {
-        const job = await this.remote.transcription({ jobId }, this.abort.signal)
-        if (job.state === 'completed') {
-          await this.refresh()
-          return job
-        }
-        if (job.state === 'failed') throw new Error(job.error ?? 'Transcription failed')
-        await new Promise(resolve => setTimeout(resolve, 1_000))
-      }
-    } catch (error) {
-      this.fail(error)
-      throw error
-    } finally {
-      this.update({ busy: false })
+  async uploadMeetingAudio(meetingId: string, blob: Blob, clientSegmentId: string = crypto.randomUUID(), startedAt?: string, endedAt?: string): Promise<TranscriptionView> {
+    const contentType = blob.type || 'audio/webm'
+    const ticket = await this.remote.createUploadTicket({ meetingId, contentType, size: blob.size, clientSegmentId, ...(startedAt === undefined ? {} : { startedAt }), ...(endedAt === undefined ? {} : { endedAt }) }, this.abort.signal)
+    const response = await fetch(ticket.uploadUrl, { method: 'PUT', headers: { 'content-type': contentType }, body: blob, signal: this.abort.signal })
+    if (!response.ok) throw new Error(`音频上传失败（HTTP ${response.status}）`)
+    const { jobId } = await response.json() as { jobId: string }
+    for (;;) {
+      const job = await this.remote.transcription({ jobId }, this.abort.signal)
+      if (job.state === 'completed') { await this.refresh(); return job }
+      if (job.state === 'failed') throw new Error(job.error ?? '转写失败')
+      await new Promise(resolve => window.setTimeout(resolve, 750))
     }
   }
 
@@ -91,8 +104,7 @@ export class FlowboardController implements HostObservable<FlowboardState> {
     while (!this.abort.signal.aborted) {
       try {
         if (this.state.snapshot === null) await this.refresh()
-        const cursor = this.state.snapshot?.cursor ?? 0
-        const result = await this.remote.changes({ cursor, waitMs: 30_000 }, this.abort.signal)
+        const result = await this.remote.changes({ cursor: this.state.snapshot?.cursor ?? 0, waitMs: 30_000 }, this.abort.signal)
         if (result.changed) await this.refresh()
         retryMs = 1_000
       } catch (error) {
@@ -106,10 +118,7 @@ export class FlowboardController implements HostObservable<FlowboardState> {
   private delay(ms: number): Promise<void> {
     return new Promise(resolve => {
       const timer = window.setTimeout(resolve, ms)
-      this.abort.signal.addEventListener('abort', () => {
-        window.clearTimeout(timer)
-        resolve()
-      }, { once: true })
+      this.abort.signal.addEventListener('abort', () => { window.clearTimeout(timer); resolve() }, { once: true })
     })
   }
   private fail(error: unknown): void {

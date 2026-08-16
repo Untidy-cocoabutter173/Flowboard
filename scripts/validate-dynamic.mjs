@@ -1,0 +1,22 @@
+import { readFile } from 'node:fs/promises'
+import { resolve } from 'node:path'
+
+const files = ['dynamic/flowboard.host.js', 'dynamic/flowboard.client.js']
+const forbidden = [
+  [/\bimport\s*(?:\(|[{'"*])/, 'import'],
+  [/\brequire\s*\(/, 'require'],
+  [/\binterface\s+[A-Za-z_$]/, 'TypeScript interface'],
+  [/\b(?:process|Buffer)\b/, 'Node global'],
+]
+
+for (const file of files) {
+  const source = await readFile(resolve(file), 'utf8')
+  Function(source)
+  for (const [pattern, label] of forbidden) {
+    if (pattern.test(source)) throw new Error(`${file}: forbidden ${label}`)
+  }
+  if (file.endsWith('.client.js') && /\bfetch\s*\(/.test(source)) throw new Error(`${file}: client fetch is forbidden`)
+  if (!/^return\s+\{/m.test(source)) throw new Error(`${file}: must be a function body returning a plugin`)
+}
+
+console.log('dynamic Flowboard Host/Client sources are valid')

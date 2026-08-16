@@ -1,6 +1,6 @@
 {
   "name": "flowboard-plugin-workspace",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "author": "构序科技",
   "private": true,
   "type": "module",
@@ -13,10 +13,11 @@
     "build:host": "tsc -b tsconfig.host.json && tsdown --config tsdown.host.config.ts",
     "build:client": "tsc -b tsconfig.client.json && tsdown --config tsdown.client.config.ts",
     "build": "pnpm run clean && pnpm run build:host && pnpm run build:client",
-    "typecheck": "pnpm run build:host && tsc -b tsconfig.client.json --pretty false",
+    "typecheck": "tsc -b tsconfig.host.json tsconfig.client.json --pretty false",
+    "dynamic:check": "node scripts/validate-dynamic.mjs",
     "test:run": "vitest run",
-    "test": "pnpm run build && pnpm run test:run",
-    "check": "pnpm run test && pnpm run pack:check",
+    "test": "pnpm run typecheck && pnpm run test:run",
+    "check": "pnpm run dynamic:check && pnpm run test && pnpm run pack:check",
     "pack:check": "pnpm --filter @flowboard/contracts pack --pack-destination ../../artifacts --dry-run && pnpm --filter @flowboard/server pack --pack-destination ../../artifacts --dry-run && pnpm --filter @flowboard/dsh-service pack --pack-destination ../../artifacts --dry-run && pnpm --filter @flowboard/dsh-client pack --pack-destination ../../artifacts --dry-run && pnpm --filter @flowboard/dsh pack --pack-destination ../../artifacts --dry-run",
     "server": "tsx packages/server/src/cli.ts",
     "worker": "tsx packages/server/src/worker-cli.ts"

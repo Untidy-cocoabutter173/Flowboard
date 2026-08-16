@@ -18,6 +18,7 @@ describe('Flowboard contracts', () => {
       meetingId: 'meeting-1',
       contentType: 'audio/webm',
       size: MAX_UPLOAD_BYTES + 1,
+      clientSegmentId: 'segment-1',
     })).toThrow()
   })
 })
