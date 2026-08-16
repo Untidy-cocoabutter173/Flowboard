@@ -30,6 +30,7 @@ export interface FlowboardState {
   status: 'loading' | 'ready' | 'error'
   snapshot: FlowboardSnapshot | null
   route: FlowboardRoute
+  selectedPersonId: string | null
   meetingRuntimes: Record<string, MeetingRuntime>
   busy: boolean
   error: string | null
@@ -38,7 +39,7 @@ export interface FlowboardState {
 const emptyRuntime = (): MeetingRuntime => ({ meetingId: null, recording: false, uploading: false, candidate: '', awaitingConsumption: false, error: null })
 
 export class FlowboardController implements HostObservable<FlowboardState> {
-  private state: FlowboardState = { status: 'loading', snapshot: null, route: { area: 'home' }, meetingRuntimes: {}, busy: false, error: null }
+  private state: FlowboardState = { status: 'loading', snapshot: null, route: { area: 'home' }, selectedPersonId: null, meetingRuntimes: {}, busy: false, error: null }
   private readonly listeners = new Set<() => void>()
   private abort = new AbortController()
 
@@ -51,6 +52,9 @@ export class FlowboardController implements HostObservable<FlowboardState> {
   start(): void { void this.run() }
   dispose(): void { this.abort.abort(); this.listeners.clear() }
   navigate = (route: FlowboardRoute): void => this.update({ route })
+  selectPerson = (personId: string): void => {
+    if (this.state.snapshot?.people.some(person => person.id === personId) === true) this.update({ selectedPersonId: personId })
+  }
   meetingRuntime = (sessionId: string): MeetingRuntime => this.state.meetingRuntimes[sessionId] ?? emptyRuntime()
   setMeetingRuntime = (sessionId: string, patch: Partial<MeetingRuntime>): void => {
     const current = this.meetingRuntime(sessionId)
@@ -68,7 +72,10 @@ export class FlowboardController implements HostObservable<FlowboardState> {
       const meetingId = route.meetingId
       if (meetingId !== null && !snapshot.meetings.some(meeting => meeting.id === meetingId)) route = { area: 'meetings', meetingId: null }
     }
-    this.update({ snapshot, status: 'ready', route, error: null })
+    const selectedPersonId = snapshot.people.some(person => person.id === this.state.selectedPersonId)
+      ? this.state.selectedPersonId
+      : snapshot.people.find(person => person.id === snapshot.actor.id)?.id ?? snapshot.people[0]?.id ?? null
+    this.update({ snapshot, status: 'ready', route, selectedPersonId, error: null })
   }
 
   async command(command: ClientCommand): Promise<CommandResult> {

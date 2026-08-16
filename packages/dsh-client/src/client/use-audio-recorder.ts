@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef } from 'react'
+import { encodePcm16Wav } from './audio-wav.ts'
 
 export interface VadRecorderOptions {
   active: boolean
@@ -7,88 +8,110 @@ export interface VadRecorderOptions {
   onError(message: string): void
 }
 
+const PRE_ROLL_MS = 350
+const SILENCE_MS = 800
+const MAX_SEGMENT_MS = 15_000
+
 export function useVadRecorder(options: VadRecorderOptions) {
   const optionsRef = useRef(options)
   optionsRef.current = options
   const stream = useRef<MediaStream | null>(null)
   const context = useRef<AudioContext | null>(null)
-  const analyser = useRef<AnalyserNode | null>(null)
-  const recorder = useRef<MediaRecorder | null>(null)
-  const chunks = useRef<Blob[]>([])
-  const timer = useRef<number | null>(null)
+  const processor = useRef<ScriptProcessorNode | null>(null)
+  const silentGain = useRef<GainNode | null>(null)
+  const preRoll = useRef<Float32Array[]>([])
+  const preRollSamples = useRef(0)
+  const segment = useRef<Float32Array[] | null>(null)
+  const segmentStartedAt = useRef<number | null>(null)
   const speechAt = useRef(0)
-  const segmentAt = useRef<string | null>(null)
   const noiseFloor = useRef(0.008)
   const calibrateUntil = useRef(0)
 
-  const stopSegment = useCallback(() => {
-    const current = recorder.current
-    if (current !== null && current.state !== 'inactive') current.stop()
+  const finishSegment = useCallback(() => {
+    const chunks = segment.current
+    const startedAt = segmentStartedAt.current
+    const sampleRate = context.current?.sampleRate
+    segment.current = null
+    segmentStartedAt.current = null
+    optionsRef.current.onState(false)
+    if (chunks === null || chunks.length === 0 || startedAt === null || sampleRate === undefined) return
+    const blob = new Blob([encodePcm16Wav(chunks, sampleRate)], { type: 'audio/wav' })
+    void optionsRef.current.onSegment(blob, new Date(startedAt).toISOString(), new Date().toISOString())
+      .catch(error => optionsRef.current.onError(error instanceof Error ? error.message : String(error)))
   }, [])
 
   const release = useCallback(() => {
-    if (timer.current !== null) window.clearInterval(timer.current)
-    timer.current = null
-    stopSegment()
+    finishSegment()
+    processor.current?.disconnect()
+    silentGain.current?.disconnect()
+    processor.current = null
+    silentGain.current = null
     stream.current?.getTracks().forEach(track => track.stop())
     stream.current = null
     void context.current?.close().catch(() => undefined)
     context.current = null
-    analyser.current = null
+    preRoll.current = []
+    preRollSamples.current = 0
     optionsRef.current.onState(false)
-  }, [stopSegment])
+  }, [finishSegment])
 
-  const startSegment = useCallback(() => {
-    if (stream.current === null || recorder.current !== null) return
-    const mimeType = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'].find(type => MediaRecorder.isTypeSupported(type))
-    const next = mimeType === undefined ? new MediaRecorder(stream.current) : new MediaRecorder(stream.current, { mimeType })
-    chunks.current = []
-    segmentAt.current = new Date().toISOString()
-    next.ondataavailable = event => { if (event.data.size > 0) chunks.current.push(event.data) }
-    next.onstop = () => {
-      recorder.current = null
-      optionsRef.current.onState(false)
-      const blob = new Blob(chunks.current, { type: next.mimeType || 'audio/webm' })
-      const startedAt = segmentAt.current ?? new Date().toISOString()
-      segmentAt.current = null
-      if (blob.size > 0) void optionsRef.current.onSegment(blob, startedAt, new Date().toISOString()).catch(error => optionsRef.current.onError(error instanceof Error ? error.message : String(error)))
+  const acceptChunk = useCallback((chunk: Float32Array) => {
+    const audioContext = context.current
+    if (audioContext === null) return
+    let sum = 0
+    for (const sample of chunk) sum += sample * sample
+    const rms = Math.sqrt(sum / chunk.length)
+    const now = Date.now()
+    if (now < calibrateUntil.current) noiseFloor.current = Math.max(noiseFloor.current, rms)
+    const threshold = Math.max(0.012, noiseFloor.current * 2.8)
+
+    if (segment.current === null) {
+      preRoll.current.push(chunk)
+      preRollSamples.current += chunk.length
+      const maximum = audioContext.sampleRate * PRE_ROLL_MS / 1_000
+      while (preRollSamples.current > maximum && preRoll.current.length > 1) {
+        preRollSamples.current -= preRoll.current.shift()!.length
+      }
+      if (rms > threshold) {
+        speechAt.current = now
+        segment.current = preRoll.current
+        segmentStartedAt.current = now - preRollSamples.current / audioContext.sampleRate * 1_000
+        preRoll.current = []
+        preRollSamples.current = 0
+        optionsRef.current.onState(true)
+      }
+      return
     }
-    next.start()
-    recorder.current = next
-    optionsRef.current.onState(true)
-  }, [])
+
+    segment.current.push(chunk)
+    if (rms > threshold) speechAt.current = now
+    if (now - speechAt.current > SILENCE_MS || now - (segmentStartedAt.current ?? now) >= MAX_SEGMENT_MS) finishSegment()
+  }, [finishSegment])
 
   const start = useCallback(async () => {
     if (stream.current !== null) return
     try {
-      if (navigator.mediaDevices?.getUserMedia === undefined || typeof MediaRecorder === 'undefined') throw new Error('当前浏览器不支持麦克风录音')
-      const media = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } })
+      if (navigator.mediaDevices?.getUserMedia === undefined || typeof AudioContext === 'undefined') throw new Error('当前浏览器不支持麦克风录音')
+      const media = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } })
       const audioContext = new AudioContext()
       const source = audioContext.createMediaStreamSource(media)
-      const nextAnalyser = audioContext.createAnalyser()
-      nextAnalyser.fftSize = 2048
-      source.connect(nextAnalyser)
+      const nextProcessor = audioContext.createScriptProcessor(4_096, 1, 1)
+      const nextGain = audioContext.createGain()
+      nextGain.gain.value = 0
+      nextProcessor.onaudioprocess = event => acceptChunk(event.inputBuffer.getChannelData(0).slice())
+      source.connect(nextProcessor)
+      nextProcessor.connect(nextGain)
+      nextGain.connect(audioContext.destination)
       stream.current = media
       context.current = audioContext
-      analyser.current = nextAnalyser
+      processor.current = nextProcessor
+      silentGain.current = nextGain
       calibrateUntil.current = Date.now() + 700
-      const samples = new Uint8Array(nextAnalyser.fftSize)
-      timer.current = window.setInterval(() => {
-        nextAnalyser.getByteTimeDomainData(samples)
-        let sum = 0
-        for (const sample of samples) { const value = (sample - 128) / 128; sum += value * value }
-        const rms = Math.sqrt(sum / samples.length)
-        const now = Date.now()
-        if (now < calibrateUntil.current) noiseFloor.current = Math.max(noiseFloor.current, rms)
-        const threshold = Math.max(0.012, noiseFloor.current * 2.8)
-        if (rms > threshold) { speechAt.current = now; startSegment() }
-        else if (recorder.current !== null && now - speechAt.current > 800) stopSegment()
-      }, 100)
     } catch (error) {
       release()
       optionsRef.current.onError(error instanceof Error ? error.message : String(error))
     }
-  }, [release, startSegment, stopSegment])
+  }, [acceptChunk, release])
 
   useEffect(() => {
     if (options.active) void start()
@@ -96,5 +119,5 @@ export function useVadRecorder(options: VadRecorderOptions) {
     return release
   }, [options.active, release, start])
 
-  return { stopSegment }
+  return { stopSegment: finishSegment }
 }

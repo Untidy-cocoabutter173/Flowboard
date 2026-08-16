@@ -1,23 +1,334 @@
-import { useState } from 'react'
-import { Button, IconEditOutline16, IconPlayOutline16, IconPlusOutline16, IconStopFill16, IconTrashOutline16, Input, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { FlowboardSnapshot, MeetingStatus, MeetingView } from '@flowboard/contracts'
-import { ConfirmDialog, Empty, EntityModal, Field, IconButton, PageHeader, formatDate, type CommandHandler } from './shared.tsx'
-import css from '../flowboard.module.css'
+import { useState } from "react";
+import {
+  Button,
+  IconEditOutline16,
+  IconPlayOutline16,
+  IconPlusOutline16,
+  IconStopFill16,
+  IconTrashOutline16,
+  Input,
+  StateDot,
+  TextArea,
+} from "../ui.tsx";
+import type {
+  FlowboardSnapshot,
+  MeetingStatus,
+  MeetingView,
+} from "@flowboard/contracts";
+import {
+  ConfirmDialog,
+  Empty,
+  EntityModal,
+  Field,
+  IconButton,
+  MultiSelectControl,
+  PageHeader,
+  SelectControl,
+  formatDate,
+  type CommandHandler,
+} from "./shared.tsx";
+import css from "../flowboard.module.css";
 
-type Dialog = { type: 'create' } | { type: 'edit' | 'transcript' | 'delete'; meeting: MeetingView } | null
-const statusText: Record<MeetingStatus, string> = { scheduled: '待开始', live: '进行中', finalizing: 'AI 整理中', ended: '已结束', cancelled: '已取消' }
+type Dialog =
+  | { type: "create" }
+  | { type: "edit" | "transcript" | "delete"; meeting: MeetingView }
+  | null;
+const statusText: Record<MeetingStatus, string> = {
+  scheduled: "待开始",
+  live: "进行中",
+  finalizing: "AI 整理中",
+  ended: "已结束",
+  cancelled: "已取消",
+};
 
-export function MeetingsView({ snapshot, projectId, command, onStart, onStop, onOpen }: { snapshot: FlowboardSnapshot; projectId: string | null; command: CommandHandler; onStart(meeting: MeetingView): Promise<void>; onStop(meeting: MeetingView): Promise<void>; onOpen(meeting: MeetingView): void }) {
-  const [dialog, setDialog] = useState<Dialog>(null)
-  const linked = new Set(snapshot.links.projectMeetings.filter(link => projectId === null || link.projectId === projectId).map(link => link.meetingId))
-  const meetings = snapshot.meetings.filter(item => projectId === null || linked.has(item.id)).sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-  const defaultProject = projectId ?? snapshot.projects[0]?.id ?? null
-  return <section><PageHeader title={projectId === null ? '会议' : '项目会议'} meta={`${meetings.length} 场会议`} actions={<Button variant="primary" size="sm" icon={<IconPlusOutline16 />} disabled={defaultProject === null} onClick={() => setDialog({ type: 'create' })}>新建会议</Button>} />
-    <div className={css.meetingList}>{meetings.map(meeting => <article className={css.meeting} key={meeting.id}><header><button type="button" className={css.meetingTitle} onClick={() => onOpen(meeting)}><StateDot state={meeting.status === 'live' ? 'ongoing' : meeting.status === 'ended' ? 'done' : 'warning'} /><span><strong>{meeting.title}</strong><small>{statusText[meeting.status]} · {formatDate(meeting.startedAt ?? meeting.createdAt)}</small></span></button><div className={css.rowActions}><IconButton label="编辑会议" onClick={() => setDialog({ type: 'edit', meeting })}><IconEditOutline16 /></IconButton><IconButton label="删除会议" disabled={meeting.status === 'live' || meeting.status === 'finalizing'} onClick={() => setDialog({ type: 'delete', meeting })}><IconTrashOutline16 /></IconButton></div></header><div className={css.meetingActions}>{meeting.status === 'scheduled' && <Button variant="primary" size="sm" icon={<IconPlayOutline16 />} onClick={() => void onStart(meeting).catch(() => undefined)}>开始 AI 会议</Button>}{meeting.status === 'live' && <Button variant="outline" size="sm" className={css.dangerButton} icon={<IconStopFill16 />} onClick={() => void onStop(meeting).catch(() => undefined)}>停止并整理</Button>}<Button variant="ghost" size="sm" onClick={() => onOpen(meeting)}>打开会议</Button><Button variant="ghost" size="sm" onClick={() => setDialog({ type: 'transcript', meeting })}>追加记录</Button></div><div className={css.meetingBody}><section><h3>实时转录</h3><p className={meeting.transcript === '' ? css.muted : undefined}>{meeting.transcript || '暂无转录'}</p></section><section><h3>核心总结</h3><p className={meeting.summary === '' ? css.muted : undefined}>{meeting.summary || (meeting.status === 'finalizing' ? 'AI 正在整理会议产物' : '暂无总结')}</p></section></div></article>)}</div>
-    {meetings.length === 0 && <Empty title="还没有会议" detail="从首页或项目中开始一场 AI 会议。" />}
-    <EntityModal open={dialog?.type === 'create'} title="新建会议" submitLabel="创建" onClose={() => setDialog(null)} onSubmit={async data => { const projectIds = projectId === null ? data.getAll('projectIds').map(String) : [projectId]; const project = snapshot.projects.find(item => item.id === projectIds[0]); if (project === undefined) throw new Error('至少关联一个项目'); await command({ type: 'meeting.create', payload: { teamId: project.teamId, projectIds, title: String(data.get('title')), settings: { automation: String(data.get('automation')) as 'record' | 'suggest' | 'execute' } } }) }}><Field label="会议主题"><Input name="title" required autoFocus maxLength={240} /></Field>{projectId === null && <Field label="关联项目"><select name="projectIds" multiple required defaultValue={defaultProject === null ? [] : [defaultProject]}>{snapshot.projects.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}</select></Field>}<Field label="AI 参与方式"><select name="automation" defaultValue="suggest"><option value="record">只记录</option><option value="suggest">建议后执行</option><option value="execute">自动执行安全操作</option></select></Field></EntityModal>
-    {dialog?.type === 'edit' && <EntityModal open title="编辑会议" submitLabel="保存" onClose={() => setDialog(null)} onSubmit={async data => { const existingProjects = snapshot.links.projectMeetings.filter(link => link.meetingId === dialog.meeting.id).map(link => link.projectId); const projectIds = projectId === null ? data.getAll('projectIds').map(String) : existingProjects; return command({ type: 'meeting.update', expectedVersion: dialog.meeting.version, payload: { id: dialog.meeting.id, title: String(data.get('title')), projectIds } }) }}><Field label="会议主题"><Input name="title" required autoFocus defaultValue={dialog.meeting.title} /></Field>{projectId === null && <Field label="关联项目"><select name="projectIds" multiple required defaultValue={snapshot.links.projectMeetings.filter(link => link.meetingId === dialog.meeting.id).map(link => link.projectId)}>{snapshot.projects.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}</select></Field>}</EntityModal>}
-    {dialog?.type === 'transcript' && <EntityModal open title="追加会议记录" submitLabel="追加" onClose={() => setDialog(null)} onSubmit={async data => command({ type: 'meeting.transcript.append', expectedVersion: dialog.meeting.version, payload: { id: dialog.meeting.id, text: String(data.get('text')) } })}><Field label="记录内容"><textarea name="text" rows={8} required autoFocus /></Field></EntityModal>}
-    {dialog?.type === 'delete' && <ConfirmDialog open title="删除会议" detail={`确定删除“${dialog.meeting.title}”及其全部记录吗？`} onClose={() => setDialog(null)} onConfirm={async () => command({ type: 'meeting.delete', expectedVersion: dialog.meeting.version, payload: { id: dialog.meeting.id } })} />}
-  </section>
+export function MeetingsView({
+  snapshot,
+  projectId,
+  command,
+  onStart,
+  onStop,
+  onOpen,
+}: {
+  snapshot: FlowboardSnapshot;
+  projectId: string | null;
+  command: CommandHandler;
+  onStart(meeting: MeetingView): Promise<void>;
+  onStop(meeting: MeetingView): Promise<void>;
+  onOpen(meeting: MeetingView): void;
+}) {
+  const [dialog, setDialog] = useState<Dialog>(null);
+  const linked = new Set(
+    snapshot.links.projectMeetings
+      .filter((link) => projectId === null || link.projectId === projectId)
+      .map((link) => link.meetingId),
+  );
+  const meetings = snapshot.meetings
+    .filter((item) => projectId === null || linked.has(item.id))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const defaultProject = projectId ?? snapshot.projects[0]?.id ?? null;
+  return (
+    <section>
+      <PageHeader
+        title={projectId === null ? "会议" : "项目会议"}
+        meta={`${meetings.length} 场会议`}
+        actions={
+          <Button
+            variant="primary"
+            size="sm"
+            icon={<IconPlusOutline16 />}
+            disabled={defaultProject === null}
+            onClick={() => setDialog({ type: "create" })}
+          >
+            新建会议
+          </Button>
+        }
+      />
+      <div className={css.meetingList}>
+        {meetings.map((meeting) => (
+          <article className={css.meeting} key={meeting.id}>
+            <header>
+              <button
+                type="button"
+                className={css.meetingTitle}
+                onClick={() => onOpen(meeting)}
+              >
+                <StateDot
+                  state={
+                    meeting.status === "live"
+                      ? "ongoing"
+                      : meeting.status === "ended"
+                        ? "done"
+                        : "warning"
+                  }
+                />
+                <span>
+                  <strong>{meeting.title}</strong>
+                  <small>
+                    {statusText[meeting.status]} ·{" "}
+                    {formatDate(meeting.startedAt ?? meeting.createdAt)}
+                  </small>
+                </span>
+              </button>
+              <div className={css.rowActions}>
+                <IconButton
+                  label="编辑会议"
+                  onClick={() => setDialog({ type: "edit", meeting })}
+                >
+                  <IconEditOutline16 />
+                </IconButton>
+                <IconButton
+                  label="删除会议"
+                  disabled={
+                    meeting.status === "live" || meeting.status === "finalizing"
+                  }
+                  onClick={() => setDialog({ type: "delete", meeting })}
+                >
+                  <IconTrashOutline16 />
+                </IconButton>
+              </div>
+            </header>
+            <div className={css.meetingActions}>
+              {meeting.status === "scheduled" && (
+                <Button
+                  variant="primary"
+                  size="sm"
+                  icon={<IconPlayOutline16 />}
+                  onClick={() => void onStart(meeting).catch(() => undefined)}
+                >
+                  开始 AI 会议
+                </Button>
+              )}
+              {meeting.status === "live" && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className={css.dangerButton}
+                  icon={<IconStopFill16 />}
+                  onClick={() => void onStop(meeting).catch(() => undefined)}
+                >
+                  停止并整理
+                </Button>
+              )}
+              <Button variant="ghost" size="sm" onClick={() => onOpen(meeting)}>
+                打开会议
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setDialog({ type: "transcript", meeting })}
+              >
+                追加记录
+              </Button>
+            </div>
+            <div className={css.meetingBody}>
+              <section>
+                <h3>实时转录</h3>
+                <p
+                  className={meeting.transcript === "" ? css.muted : undefined}
+                >
+                  {meeting.transcript || "暂无转录"}
+                </p>
+              </section>
+              <section>
+                <h3>核心总结</h3>
+                <p className={meeting.summary === "" ? css.muted : undefined}>
+                  {meeting.summary ||
+                    (meeting.status === "finalizing"
+                      ? "AI 正在整理会议产物"
+                      : "暂无总结")}
+                </p>
+              </section>
+            </div>
+          </article>
+        ))}
+      </div>
+      {meetings.length === 0 && (
+        <Empty title="还没有会议" detail="从首页或项目中开始一场 AI 会议。" />
+      )}
+      <EntityModal
+        open={dialog?.type === "create"}
+        title="新建会议"
+        submitLabel="创建"
+        onClose={() => setDialog(null)}
+        onSubmit={async (data) => {
+          const projectIds =
+            projectId === null
+              ? data.getAll("projectIds").map(String)
+              : [projectId];
+          const project = snapshot.projects.find(
+            (item) => item.id === projectIds[0],
+          );
+          if (project === undefined) throw new Error("至少关联一个项目");
+          await command({
+            type: "meeting.create",
+            payload: {
+              teamId: project.teamId,
+              projectIds,
+              title: String(data.get("title")),
+              settings: {
+                automation: String(data.get("automation")) as
+                  "record" | "suggest" | "execute",
+              },
+            },
+          });
+        }}
+      >
+        <Field label="会议主题">
+          <Input name="title" required autoFocus maxLength={240} />
+        </Field>
+        {projectId === null && (
+          <Field label="关联项目">
+            <MultiSelectControl
+              name="projectIds"
+              ariaLabel="关联项目"
+              defaultValue={defaultProject === null ? [] : [defaultProject]}
+              options={snapshot.projects.map((project) => ({
+                value: project.id,
+                label: project.name,
+              }))}
+            />
+          </Field>
+        )}
+        <Field label="AI 参与方式">
+          <SelectControl
+            name="automation"
+            ariaLabel="AI 参与方式"
+            defaultValue="suggest"
+            options={[
+              { value: "record", label: "只记录" },
+              { value: "suggest", label: "建议后执行" },
+              { value: "execute", label: "自动执行安全操作" },
+            ]}
+          />
+        </Field>
+      </EntityModal>
+      {dialog?.type === "edit" && (
+        <EntityModal
+          open
+          title="编辑会议"
+          submitLabel="保存"
+          onClose={() => setDialog(null)}
+          onSubmit={async (data) => {
+            const existingProjects = snapshot.links.projectMeetings
+              .filter((link) => link.meetingId === dialog.meeting.id)
+              .map((link) => link.projectId);
+            const projectIds =
+              projectId === null
+                ? data.getAll("projectIds").map(String)
+                : existingProjects;
+            return command({
+              type: "meeting.update",
+              expectedVersion: dialog.meeting.version,
+              payload: {
+                id: dialog.meeting.id,
+                title: String(data.get("title")),
+                projectIds,
+              },
+            });
+          }}
+        >
+          <Field label="会议主题">
+            <Input
+              name="title"
+              required
+              autoFocus
+              defaultValue={dialog.meeting.title}
+            />
+          </Field>
+          {projectId === null && (
+            <Field label="关联项目">
+              <MultiSelectControl
+                name="projectIds"
+                ariaLabel="关联项目"
+                defaultValue={snapshot.links.projectMeetings
+                  .filter((link) => link.meetingId === dialog.meeting.id)
+                  .map((link) => link.projectId)}
+                options={snapshot.projects.map((project) => ({
+                  value: project.id,
+                  label: project.name,
+                }))}
+              />
+            </Field>
+          )}
+        </EntityModal>
+      )}
+      {dialog?.type === "transcript" && (
+        <EntityModal
+          open
+          title="追加会议记录"
+          submitLabel="追加"
+          onClose={() => setDialog(null)}
+          onSubmit={async (data) =>
+            command({
+              type: "meeting.transcript.append",
+              expectedVersion: dialog.meeting.version,
+              payload: {
+                id: dialog.meeting.id,
+                text: String(data.get("text")),
+              },
+            })
+          }
+        >
+          <Field label="记录内容">
+            <TextArea name="text" rows={8} required autoFocus />
+          </Field>
+        </EntityModal>
+      )}
+      {dialog?.type === "delete" && (
+        <ConfirmDialog
+          open
+          title="删除会议"
+          detail={`确定删除“${dialog.meeting.title}”及其全部记录吗？`}
+          onClose={() => setDialog(null)}
+          onConfirm={async () =>
+            command({
+              type: "meeting.delete",
+              expectedVersion: dialog.meeting.version,
+              payload: { id: dialog.meeting.id },
+            })
+          }
+        />
+      )}
+    </section>
+  );
 }

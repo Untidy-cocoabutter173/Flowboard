@@ -33,17 +33,18 @@ return {
       const meetingId = String(args && args.meetingId || '')
       const clientSegmentId = String(args && args.clientSegmentId || '')
       if (!base64 || !meetingId || !clientSegmentId) throw new Error('meetingId, clientSegmentId and base64 are required')
-      const size = Math.max(1, Math.floor(base64.length * 3 / 4))
-      const ticket = await api('POST', '/v1/uploads/tickets', { meetingId: meetingId, clientSegmentId: clientSegmentId, contentType: String(args.contentType || 'audio/webm'), size: size, startedAt: args.startedAt, endedAt: args.endedAt })
-      const upload = await run('base64 -d | curl -fsS -X PUT -H ' + quote('content-type: ' + String(args.contentType || 'audio/webm')) + ' --data-binary @- ' + quote(ticket.uploadUrl), base64)
+      const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0
+      const size = Math.max(1, Math.floor(base64.length * 3 / 4) - padding)
+      const contentType = String(args.contentType || 'audio/webm').split(';', 1)[0].trim().toLowerCase()
+      const ticket = await api('POST', '/v1/uploads/tickets', { meetingId: meetingId, clientSegmentId: clientSegmentId, contentType: contentType, size: size, startedAt: args.startedAt, endedAt: args.endedAt })
+      const upload = await run('base64 -d | curl -fsS -X PUT -H ' + quote('content-type: ' + contentType) + ' --data-binary @- ' + quote(ticket.uploadUrl), base64)
       const accepted = JSON.parse(upload)
-      for (let attempt = 0; attempt < 80; attempt++) {
-        const job = await api('GET', '/v1/transcriptions/' + encodeURIComponent(String(accepted.jobId)))
-        if (job.state === 'completed') return job
-        if (job.state === 'failed') throw new Error(job.error || 'transcription failed')
-        await new Promise(function (resolve) { ctx.timer.timeout(resolve, 500) })
-      }
-      throw new Error('transcription timed out')
+      return { jobId: accepted.jobId, state: 'pending', text: null }
+    })
+    handle('transcription', function (args) {
+      const jobId = String(args && args.jobId || '')
+      if (!jobId) throw new Error('jobId is required')
+      return api('GET', '/v1/transcriptions/' + encodeURIComponent(jobId))
     })
 
     const output = { schema: { type: 'object', additionalProperties: true, properties: {} }, render: function (_args, value) { return [{ type: 'text', text: JSON.stringify(value) }] } }

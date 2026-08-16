@@ -1,5 +1,7 @@
 node_modules/
 lib/
+!packages/server/vendor/whisper/linux-x64/lib/
+!packages/server/vendor/whisper/linux-x64/lib/*.so*
 lib-types/
 *.tsbuildinfo
 coverage/

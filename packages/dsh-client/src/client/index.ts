@@ -20,6 +20,7 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
       hooks: { flowboard: controller },
       getState: controller.getSnapshot,
       navigate: controller.navigate,
+      selectPerson: controller.selectPerson,
       refresh: () => controller.refresh(),
       command: value => controller.command(value),
       upload: (meetingId, blob, clientSegmentId, startedAt, endedAt) => controller.uploadMeetingAudio(meetingId, blob, clientSegmentId, startedAt, endedAt),

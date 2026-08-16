@@ -75,6 +75,11 @@ export default defineConfig([
     dts: false,
     sourcemap: true,
     clean: false,
+    define: {
+      'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'production'),
+      'import.meta.env.MODE': JSON.stringify(process.env.NODE_ENV ?? 'production'),
+      'import.meta.env': JSON.stringify({ MODE: process.env.NODE_ENV ?? 'production' }),
+    },
     deps: {
       neverBundle: CLIENT_EXTERNALS,
       alwaysBundle: id => CLIENT_EXTERNALS.includes(id) ? undefined : true,

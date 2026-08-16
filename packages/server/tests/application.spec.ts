@@ -59,4 +59,21 @@ describe('Flowboard HTTP API', () => {
     const repeated = await app.inject({ method: 'PUT', url: path, headers: { 'content-type': 'audio/webm' }, payload: Buffer.from('test') })
     expect(repeated.statusCode).toBe(401)
   })
+
+  it('规范化 MediaRecorder 带 codecs 的音频类型', async () => {
+    const actor = repository.authenticate('http-token')
+    const meeting = repository.execute(actor, { idempotencyKey: 'codec-meeting-create', type: 'meeting.create', payload: { teamId: 'team-local', projectIds: ['project-local'], title: '语音会议' } })
+    repository.execute(actor, { idempotencyKey: 'codec-meeting-start', type: 'meeting.update', expectedVersion: 1, payload: { id: meeting.entityId, status: 'live' } })
+    const ticketResponse = await app.inject({
+      method: 'POST',
+      url: '/v1/uploads/tickets',
+      headers: { authorization: 'Bearer http-token' },
+      payload: { meetingId: meeting.entityId, contentType: 'audio/webm;codecs=opus', size: 4, clientSegmentId: 'codec-segment-1' },
+    })
+
+    expect(ticketResponse.statusCode).toBe(200)
+    const path = new URL((ticketResponse.json() as { uploadUrl: string }).uploadUrl).pathname
+    const uploaded = await app.inject({ method: 'PUT', url: path, headers: { 'content-type': 'audio/webm;codecs=opus' }, payload: Buffer.from('test') })
+    expect(uploaded.statusCode).toBe(202)
+  })
 })

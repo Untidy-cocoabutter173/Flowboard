@@ -21,7 +21,7 @@ export default defineConfig([
   nodePackage('@flowboard/contracts', 'packages/contracts', ['index'], ['zod']),
   nodePackage('@flowboard/server', 'packages/server', ['index', 'cli', 'worker-cli'], ['@flowboard/contracts', 'fastify']),
   nodePackage('@flowboard/dsh-service', 'packages/dsh-service', ['index', 'invariant'], [
-    '@flowboard/contracts', '@deepseek-ai/cordis', '@deepseek-ai/dsh-tools', '@deepseek-ai/dsh-typert-protocol', 'zod',
+    '@flowboard/contracts', '@flowboard/server', '@deepseek-ai/cordis', '@deepseek-ai/dsh-tools', '@deepseek-ai/dsh-typert-protocol', 'zod',
   ], [
     typertPlugin({ mode: 'package', faces: ['host'] }),
   ]),

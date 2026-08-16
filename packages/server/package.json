@@ -16,7 +16,7 @@
     },
     "./package.json": "./package.json"
   },
-  "files": ["lib/**/*.js", "lib/**/*.d.ts"],
+  "files": ["lib/**/*.js", "lib/**/*.d.ts", "vendor/whisper/**/*"],
   "dependencies": {
     "@flowboard/contracts": "workspace:^",
     "fastify": "^5.6.2"

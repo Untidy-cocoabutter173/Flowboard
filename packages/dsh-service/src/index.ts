@@ -11,10 +11,16 @@ import {
   type TranscriptionRequest,
   type UploadTicketRequest,
 } from '@flowboard/contracts'
+import { startFlowboardRuntime } from '@flowboard/server'
 import { FlowboardHttpClient, type HttpClientConfig } from './http-client.ts'
 import { registerFlowboardTools } from './tools.ts'
 
-export interface Config extends HttpClientConfig {}
+export interface Config extends Partial<HttpClientConfig> {
+  embedded?: boolean
+  host?: string
+  port?: number
+  dataDirectory?: string
+}
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -28,8 +34,28 @@ export class FlowboardService extends TypertRemoteService {
 
   constructor(ctx: Context, config: Config) {
     super(ctx, 'flowboard')
-    if (config.apiBase.trim() === '' || config.token.length < 8) throw new Error('Flowboard apiBase and an access token of at least 8 characters are required')
-    this.client = new FlowboardHttpClient(config)
+    const host = config.host ?? '127.0.0.1'
+    const port = config.port ?? 8787
+    const apiBase = config.apiBase ?? `http://${host}:${port}`
+    const token = config.token ?? 'flowboard-local'
+    if (apiBase.trim() === '' || token.length < 8) throw new Error('Flowboard apiBase and an access token of at least 8 characters are required')
+    this.client = new FlowboardHttpClient({
+      apiBase,
+      token,
+      ...(config.requestTimeoutMs === undefined ? {} : { requestTimeoutMs: config.requestTimeoutMs }),
+    })
+    if (config.embedded ?? true) {
+      ctx.effect(async () => {
+        const runtime = await startFlowboardRuntime({
+          host,
+          port,
+          token,
+          logger: false,
+          ...(config.dataDirectory === undefined ? {} : { dataDirectory: config.dataDirectory }),
+        })
+        return () => runtime.close()
+      }, 'flowboard.embeddedRuntime')
+    }
     registerFlowboardTools(ctx, this.client)
   }
 

@@ -7,11 +7,11 @@ export interface Transcriber {
 }
 
 export class CommandTranscriber implements Transcriber {
-  constructor(readonly command: string, readonly args: string[]) {}
+  constructor(readonly command: string, readonly args: string[], readonly env?: NodeJS.ProcessEnv) {}
 
   transcribe(audioPath: string, signal?: AbortSignal): Promise<string> {
     return new Promise((resolve, reject) => {
-      const child = spawn(this.command, [...this.args, audioPath], { signal, stdio: ['ignore', 'pipe', 'pipe'] })
+      const child = spawn(this.command, [...this.args, audioPath], { signal, env: this.env, stdio: ['ignore', 'pipe', 'pipe'] })
       const stdout: Buffer[] = []
       const stderr: Buffer[] = []
       child.stdout.on('data', chunk => stdout.push(Buffer.from(chunk)))

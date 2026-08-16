@@ -6,10 +6,12 @@ Flowboard 是面向 DeepSeek Harness（DSH）的 AI 工作空间。它把项目�
 
 ## 产品结构
 
-- 左侧导航：首页、项目树、会议、资料、我的工作、组织。
-- 每个项目包含概览、看板、任务表、会议、资料和成员。
-- Jira 看板支持任务拖放、状态列配置、负责人、优先级、进度和截止时间编辑。
-- 任务表采用多维表格交互，内置字段可原位编辑，自定义表头支持文本、数字、勾选、日期、单选、多选和人员类型。
+- 左侧是完整工作区菜单：首页、我的任务、个人看板、个人日程、会议、资料、人员、团队和项目分组；项目分组展开为每个可访问项目。
+- 当前人物视角固定显示在菜单顶部，可跨项目查看该人员的任务、看板和日程，但不会改变服务端登录身份或权限。
+- 每个项目包含概览、Jira 面板、任务列表、会议、资料和人员。
+- Jira 面板使用 Dnd Kit 支持任务拖放、状态列配置、负责人、优先级、进度和截止时间编辑。
+- 任务列表采用多维表格交互，内置字段可原位编辑，自定义表头支持文本、数字、勾选、日期、单选、多选和人员类型。
+- 静态界面以 Ant Design 5 的主题、菜单、表格、弹窗、选择器和日期控件为统一设计系统，TanStack Table 提供任务筛选与行模型，CSS Modules 只负责工作台布局和领域样式。
 - 项目成员决定任务可选负责人；个人任务和个人看板按负责人跨项目聚合。
 - 任务详情、会议总结和项目资料可作为 Markdown 打开、编辑和预览。
 - 项目、会议、资料是显式多对多关系；任务归属一个主项目，并可关联多个会议和资料。
@@ -23,24 +25,45 @@ Flowboard 是面向 DeepSeek Harness（DSH）的 AI 工作空间。它把项目�
 静态 Client -> Typert Remote -> FlowboardService ┐
 动态 Client -> host.call -> 动态 Host             ├-> HTTP v2 -> SQLite
 Agent 工具  -> 静态/动态 Host                     ┘
-音频分段    -> 一次性上传票据 -> 转写 Worker -> utterance
+PCM/WAV 分段 -> 一次性上传票据 -> 内嵌 Whisper Worker -> utterance
 ```
 
 - 浏览器不持有 Flowboard API Token。
+- 音频票据统一使用不含 codec 参数的小写 MIME；动态 Host 按 Base64 填充精确计算上传字节数，票据与实际音频长度保持一致。
 - 静态 Agent 工具直接使用 `FlowboardService` 拥有的 HTTP Client，不自调用 Typert Remote。
 - `flowboard_snapshot {}` 读取轻量 `/v1/summary`；指定项目或会议时才读取完整快照。
 - Agent 写工具使用 DSH `callId` 生成稳定幂等键。
 - 服务端统一负责鉴权、授权、幂等、乐观锁、审计、历史版本、事务和变更游标。
 - 数据库 schema 固定为 v2。检测到旧 schema 会拒绝启动并提示删除开发数据库，不执行迁移或兼容读取。
 
-## 动态插件（默认开发方式）
+## 静态插件（默认开发与发布方式）
+
+| 包 | 职责 |
+| --- | --- |
+| `@flowboard/contracts` | API v2 DTO、命令联合类型和 Zod 校验 |
+| `@flowboard/server` | Fastify API、SQLite v2 仓储、上传、转写 Worker 和随包发布的 Whisper 运行时 |
+| `@flowboard/dsh-service` | Host HTTP Client、Typert Remote、细粒度 Agent 工具和内嵌服务生命周期 |
+| `@flowboard/dsh-client` | Ant Design 工作空间、Jira/多维表格、VAD 会议 owner 与 composer Dock |
+| `@flowboard/dsh` | 可安装的静态 DSH 组合包 |
+
+开发启动只有一条命令：
+
+```sh
+pnpm dev
+```
+
+脚本会依次校验动态降级源码、类型检查、构建静态 Host/Client，生成只在本次进程使用的绝对路径 patch，然后启动 DSH Web。`FlowboardService` 同时拥有 API、SQLite 和转写 Worker 的生命周期；停止 DSH 时这些资源会一并关闭。
+
+默认地址是 DSH Web `http://127.0.0.1:3080`、Flowboard API `http://127.0.0.1:8787`。脚本不会安装或重装插件，也不改 profile manifest；它只幂等维护 `@flowboard/dsh-service` 与 `@flowboard/dsh-client` 的本地 workspace 软链接，使 DSH 保留包身份并发布浏览器 Client。浏览器直接编码 16 kHz PCM WAV，`@flowboard/server` 随包携带 Linux x64 `whisper-cli`、共享库和多语言 `ggml-base` 模型，因此不要求系统安装 Whisper、ffmpeg、模型或配置环境变量。
+
+## 动态插件（实验与应急入口）
 
 仓库直接维护可传给 `cordis_define.code.host/client` 的函数体：
 
 - `dynamic/flowboard.host.js`
 - `dynamic/flowboard.client.js`
 
-动态 Client 是纯 JavaScript、React `createElement`，不包含 import、TypeScript、JSX、Node 能力或 `fetch`。它与静态 Client 提供同一套项目子菜单、Jira 看板、多维任务表、成员管理、项目会议/资料和 Markdown 编辑能力；浏览器统一通过 `host.call` 访问动态 Host。Host 从环境读取：
+动态 Client 是纯 JavaScript、React `createElement`，不包含 import、TypeScript、JSX、Node 能力或 `fetch`。它保留关键导航、任务、会议、资料、人员和 Markdown 编辑能力，但不承诺与静态版逐像素同步；浏览器统一通过 `host.call` 访问动态 Host。Host 从环境读取：
 
 | 环境变量 | 默认值 | 说明 |
 | --- | --- | --- |
@@ -53,19 +76,7 @@ Agent 工具  -> 静态/动态 Host                     ┘
 pnpm run dynamic:check
 ```
 
-日常开发不需要生成静态 bundle。把两个文件内容分别作为 `cordis_define` 的 `code.host` 和 `code.client`，定义后使用返回的 `pluginId/packageId` 运行即可。
-
-## 静态插件（发布时按需构建）
-
-| 包 | 职责 |
-| --- | --- |
-| `@flowboard/contracts` | API v2 DTO、命令联合类型和 Zod 校验 |
-| `@flowboard/server` | Fastify API、SQLite v2 仓储、上传与转写 Worker |
-| `@flowboard/dsh-service` | Host HTTP Client、Typert Remote 和细粒度 Agent 工具 |
-| `@flowboard/dsh-client` | DSH 工作空间、VAD 会议 owner 与 composer Dock |
-| `@flowboard/dsh` | 可安装的静态 DSH 组合包 |
-
-只有发布或部署静态插件时运行：
+正式发布或部署时运行：
 
 ```sh
 pnpm run build
@@ -73,23 +84,18 @@ pnpm --filter @flowboard/dsh pack --pack-destination ../../artifacts
 dsh plugin --profile <配置名> add ./artifacts/flowboard-dsh-0.1.2.tgz
 ```
 
-## 本地服务
+动态 Host 上传音频后立即返回 `jobId`，动态 Client 再用短调用轮询转写状态，因此慢 ASR 不会触发单次 `host.call` 超时。
 
-要求 Node.js 22.19+ 和 pnpm 11.7+。
+## 独立服务调试
+
+正常开发不需要这一节，只运行 `pnpm dev`。单独调试服务端时可使用：
 
 ```sh
-pnpm install
-pnpm run check
 FLOWBOARD_TOKEN=local-secret pnpm run server
-```
-
-默认监听 `127.0.0.1:8787`，数据库位于 `data/flowboard.db`。转写 Worker 与 API 使用同一数据库：
-
-```sh
-FLOWBOARD_TRANSCRIBE_COMMAND=whisper \
-FLOWBOARD_TRANSCRIBE_ARGS='["--model","small","--output_format","txt"]' \
 pnpm run worker
 ```
+
+独立 Worker 默认也使用随包发布的 Whisper。`FLOWBOARD_TRANSCRIBE_COMMAND` 与 `FLOWBOARD_TRANSCRIBE_ARGS` 仅保留为高级调试覆盖，不是启动前提。
 
 ## 文档
 

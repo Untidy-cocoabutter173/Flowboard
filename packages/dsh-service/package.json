@@ -35,6 +35,7 @@
   ],
   "dependencies": {
     "@flowboard/contracts": "workspace:^",
+    "@flowboard/server": "workspace:^",
     "@deepseek-ai/dsh-tools": "0.1.0-rc.6",
     "@deepseek-ai/dsh-typert-protocol": "workspace:^",
     "@deepseek-ai/cordis": "^4.0.1",

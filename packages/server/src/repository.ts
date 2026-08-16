@@ -194,8 +194,10 @@ export class SqliteFlowboardRepository {
     if (existing !== undefined) throw conflict('Audio segment was already uploaded', { clientSegmentId: request.clientSegmentId })
     const token = randomBytes(32).toString('base64url')
     const expiresAt = new Date(Date.now() + 5 * 60_000).toISOString()
+    const contentType = request.contentType.split(';', 1)[0]?.trim().toLowerCase() ?? ''
+    if (!contentType.startsWith('audio/')) throw new FlowboardError('INVALID_UPLOAD', 'An audio content type is required', 400)
     this.db.prepare(`INSERT INTO upload_tickets(token_hash,tenant_id,user_id,meeting_id,client_segment_id,content_type,expected_size,started_at,ended_at,expires_at,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)`)
-      .run(tokenHash(token), actor.tenantId, actor.id, request.meetingId, request.clientSegmentId, request.contentType, request.size, request.startedAt ?? null, request.endedAt ?? null, expiresAt, now())
+      .run(tokenHash(token), actor.tenantId, actor.id, request.meetingId, request.clientSegmentId, contentType, request.size, request.startedAt ?? null, request.endedAt ?? null, expiresAt, now())
     return { uploadUrl: `${this.publicBaseUrl.replace(/\/$/, '')}/v1/uploads/${encodeURIComponent(token)}`, expiresAt, maxBytes: MAX_UPLOAD_BYTES }
   }
 
@@ -275,6 +277,7 @@ export class SqliteFlowboardRepository {
       case 'team.update': return this.updateTeam(actor, request)
       case 'team.delete': return this.deleteTeam(actor, request)
       case 'team.member.set': return this.setTeamMember(actor, request)
+      case 'team.member.remove': return this.removeTeamMember(actor, request)
       case 'person.create': return this.createPerson(actor, request)
       case 'person.update': return this.updatePerson(actor, request)
       case 'person.delete': return this.deletePerson(actor, request)
@@ -338,7 +341,19 @@ export class SqliteFlowboardRepository {
 
   private setTeamMember(actor: ActorView, request: Extract<CommandRequest, { type: 'team.member.set' }>): CommandResult {
     this.requireTeam(actor, request.payload.teamId, true, true); this.requireUser(actor, request.payload.userId)
+    const current = this.db.prepare('SELECT role FROM team_members WHERE team_id=? AND user_id=?').get(request.payload.teamId, request.payload.userId) as Row | undefined
+    if (current?.role === 'owner' && request.payload.role !== 'owner' && this.teamOwnerCount(request.payload.teamId) <= 1) throw conflict('A team must keep at least one owner')
     this.db.prepare(`INSERT INTO team_members(team_id,user_id,role,created_at) VALUES(?,?,?,?) ON CONFLICT(team_id,user_id) DO UPDATE SET role=excluded.role`).run(request.payload.teamId, request.payload.userId, request.payload.role, now())
+    return this.record(actor, 'team_member', `${request.payload.teamId}:${request.payload.userId}`, request.type, 1, request.payload)
+  }
+
+  private removeTeamMember(actor: ActorView, request: Extract<CommandRequest, { type: 'team.member.remove' }>): CommandResult {
+    this.requireTeam(actor, request.payload.teamId, true, true)
+    const member = this.db.prepare('SELECT role FROM team_members WHERE team_id=? AND user_id=?').get(request.payload.teamId, request.payload.userId) as Row | undefined
+    if (member === undefined) throw notFound('team member', request.payload.userId)
+    if (member.role === 'owner' && this.teamOwnerCount(request.payload.teamId) <= 1) throw conflict('A team must keep at least one owner')
+    this.db.prepare('DELETE FROM project_members WHERE user_id=? AND project_id IN (SELECT id FROM projects WHERE team_id=?)').run(request.payload.userId, request.payload.teamId)
+    this.db.prepare('DELETE FROM team_members WHERE team_id=? AND user_id=?').run(request.payload.teamId, request.payload.userId)
     return this.record(actor, 'team_member', `${request.payload.teamId}:${request.payload.userId}`, request.type, 1, request.payload)
   }
 
@@ -761,6 +776,10 @@ export class SqliteFlowboardRepository {
 
   private projectOwnerCount(projectId: string): number {
     return Number((this.db.prepare("SELECT COUNT(*) AS value FROM project_members WHERE project_id=? AND role='owner'").get(projectId) as Row).value)
+  }
+
+  private teamOwnerCount(teamId: string): number {
+    return Number((this.db.prepare("SELECT COUNT(*) AS value FROM team_members WHERE team_id=? AND role='owner'").get(teamId) as Row).value)
   }
 
   private requireStatus(projectId: string, statusId: string): Row {

@@ -294,6 +294,7 @@ export type CommandRequest =
   | CommandEnvelope<'team.update', { id: string; name?: string; description?: string }>
   | CommandEnvelope<'team.delete', { id: string }>
   | CommandEnvelope<'team.member.set', { teamId: string; userId: string; role: AccessRole }>
+  | CommandEnvelope<'team.member.remove', { teamId: string; userId: string }>
   | CommandEnvelope<'person.create', { teamId: string; name: string; email?: string; department?: string; title?: string; role?: AccessRole }>
   | CommandEnvelope<'person.update', { id: string; name?: string; email?: string | null; department?: string | null; title?: string | null }>
   | CommandEnvelope<'person.delete', { id: string }>
@@ -379,6 +380,7 @@ export const commandRequestSchema: z.ZodType<CommandRequest> = z.discriminatedUn
   envelope('team.update', z.object({ id, name: shortText.optional(), description: text.optional() })),
   envelope('team.delete', z.object({ id })),
   envelope('team.member.set', z.object({ teamId: id, userId: id, role })),
+  envelope('team.member.remove', z.object({ teamId: id, userId: id })),
   envelope('person.create', z.object({ teamId: id, name: shortText, email: optionalShortText, department: optionalShortText, title: optionalShortText, role: role.optional() })),
   envelope('person.update', z.object({ id, name: shortText.optional(), email: shortText.nullable().optional(), department: shortText.nullable().optional(), title: shortText.nullable().optional() })),
   envelope('person.delete', z.object({ id })),

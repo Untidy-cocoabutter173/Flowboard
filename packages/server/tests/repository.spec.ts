@@ -92,4 +92,18 @@ describe('SqliteFlowboardRepository', () => {
     repository.execute(actor, { idempotencyKey: 'meeting-markdown-update', type: 'meeting.update', expectedVersion: 1, payload: { id: meeting.entityId, transcript: '# 转录\n确认范围', summary: '## 总结\n按计划推进' } })
     expect(repository.snapshot(actor, {}).meetings.find(item => item.id === meeting.entityId)).toMatchObject({ transcript: '# 转录\n确认范围', summary: '## 总结\n按计划推进', version: 2 })
   })
+
+  it('团队管理员可以管理成员角色，移出团队同时清理项目成员关系', () => {
+    const actor = repository.authenticate('test-token')
+    const person = repository.execute(actor, { idempotencyKey: 'team-person-create', type: 'person.create', payload: { teamId: 'team-local', name: '团队成员' } })
+    repository.execute(actor, { idempotencyKey: 'team-person-project', type: 'project.member.set', payload: { projectId: 'project-local', userId: person.entityId, role: 'member' } })
+    repository.execute(actor, { idempotencyKey: 'team-person-admin', type: 'team.member.set', payload: { teamId: 'team-local', userId: person.entityId, role: 'admin' } })
+    expect(repository.snapshot(actor, {}).teamMembers.find(item => item.userId === person.entityId)?.role).toBe('admin')
+    repository.execute(actor, { idempotencyKey: 'team-person-remove', type: 'team.member.remove', payload: { teamId: 'team-local', userId: person.entityId } })
+    const snapshot = repository.snapshot(actor, {})
+    expect(snapshot.teamMembers.some(item => item.userId === person.entityId)).toBe(false)
+    expect(snapshot.projectMembers.some(item => item.userId === person.entityId)).toBe(false)
+    expect(() => repository.execute(actor, { idempotencyKey: 'team-last-owner-remove', type: 'team.member.remove', payload: { teamId: 'team-local', userId: actor.id } }))
+      .toThrowError(expect.objectContaining({ code: 'CONFLICT' }))
+  })
 })

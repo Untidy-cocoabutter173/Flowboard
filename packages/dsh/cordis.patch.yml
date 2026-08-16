@@ -2,7 +2,8 @@
     - id: flowboard-service
       name: '@flowboard/dsh-service'
       config:
+        embedded: true
         apiBase: 'http://127.0.0.1:8787'
-        token: 'change-me'
+        token: 'flowboard-local'
     - id: flowboard-client
       name: '@flowboard/dsh-client'

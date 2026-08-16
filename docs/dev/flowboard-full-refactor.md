@@ -9,7 +9,7 @@
 - 项目、任务、会议、资料、日历和成员使用一致的页面结构与操作逻辑。
 - 浏览器不持有 API Token，页面与 Agent 共用 Host Service。
 - 写操作具备授权、校验、幂等、乐观锁、事务、审计和版本记录。
-- DSH Client 使用主题 token、官方 primitives 和单 bundle 装载方式。
+- DSH Client 使用 Ant Design 5 主题与组件、TanStack Table、Dnd Kit 和单 bundle 装载方式。⚡
 - SQLite 可直接运行；为未来数据库实现保留仓储边界，但不虚构 PostgreSQL 能力。
 
 ## 模块映射
@@ -20,11 +20,11 @@
 | 数据库 | `packages/server/src/database.ts` | SQLite schema、迁移、默认租户与基础数据 |
 | 仓储 | `packages/server/src/repository.ts` | 授权、查询、事务命令、幂等、版本和审计 |
 | HTTP | `packages/server/src/application.ts` | Fastify 路由、统一错误、长轮询、上传 |
-| Worker | `packages/server/src/worker.ts` | 领取转写任务、写回记录、清理临时音频 |
-| Host | `packages/dsh-service/src/index.ts` | `FlowboardService` 与 Typert Remote |
+| Worker | `packages/server/src/worker.ts` | 使用随包 Whisper 领取转写任务、写回记录、清理临时音频 |
+| Host | `packages/dsh-service/src/index.ts` | `FlowboardService`、Typert Remote 与内嵌 API/Worker 生命周期 |
 | Agent 工具 | `packages/dsh-service/src/tools.ts` | 快照、通用命令、任务创建和任务更新 |
 | Client 控制器 | `packages/dsh-client/src/client/controller.ts` | 快照、项目选择、命令刷新、退避长轮询 |
-| Client 页面 | `packages/dsh-client/src/client/domain/` | 六个领域页面和统一交互组件 |
+| Client 页面 | `packages/dsh-client/src/client/domain/` | 项目、任务、会议、资料、日程、人员、团队、Markdown 与统一框架控件 ⚡ |
 
 ## 核心流程 🆕
 
@@ -66,12 +66,16 @@ Agent 调用从 `FlowboardService` 开始，之后与浏览器使用完全相同
 
 ## 页面设计 ⚡
 
-- 顶部固定为产品身份、项目选择和同步状态；第二行为六个模块页签。
+- 左侧承载首页、我的任务、个人看板、个人日程、会议、资料、人员、团队和项目分组；人物视角固定显示但不改变登录 actor。⚡
+- 进入项目后，内容区顶部固定为项目名称与同步状态，第二行为概览、Jira 面板、任务列表、会议、资料和人员页签。⚡
 - 每页使用相同的标题、数量、搜索和主操作布局。
-- 创建与编辑使用统一 `Modal`，删除使用统一确认对话框。
+- 创建与编辑使用 Ant Design `Modal/Input/Select/DatePicker`，删除使用统一确认对话框；人员、团队和项目成员使用同一套 `Table/Avatar/Tag/Progress`。🆕
+- Jira 看板通过 Dnd Kit 拖放，多维任务表通过 TanStack Table 行模型与结构化单元格编辑实现。🆕
 - 看板列是工作容器，任务是重复卡片；其他页面以表格或列表为主，不嵌套装饰卡片。
-- 颜色、文字、边框、hover、成功和错误状态全部读取 `--dsw-*` token。
+- Flowboard 通过 `ConfigProvider` 拥有独立的颜色、尺寸、圆角和组件 token；DSH token 只作为宿主兼容回退。
 - 移动端页签和看板横向滚动，表格只隐藏次要列，不挤压主要信息。
+
+此次修订把旧的“左栏只有项目、动态默认”描述改为当前实现，因为工作区已经形成完整菜单和人物视角，正式视觉与复杂交互也已经由静态框架承担。
 
 ## Typert 编译适配
 
@@ -89,4 +93,6 @@ Typert rc.6 在独立 pnpm workspace 中无法稳定跨本地 contracts 包识�
 - [x] Client 快照、命令刷新和断线退避测试
 - [x] Host/Client 类型检查和 bundle 构建
 - [x] Codex 插件 manifest 校验
+- [x] 零参数 `pnpm dev` 与本地 DSH workspace 启动
+- [x] PCM WAV 录音和随包 Whisper 真实音频转写
 - [ ] PostgreSQL adapter（当前范围不包含）
