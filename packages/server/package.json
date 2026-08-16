@@ -1,0 +1,25 @@
+{
+  "name": "@flowboard/server",
+  "version": "0.1.0",
+  "author": "构序科技",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "bin": {
+    "flowboard-server": "./lib/cli.js",
+    "flowboard-worker": "./lib/worker-cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": ["lib/**/*.js", "lib/**/*.d.ts"],
+  "dependencies": {
+    "@flowboard/contracts": "workspace:^",
+    "fastify": "^5.6.2"
+  },
+  "license": "MIT"
+}

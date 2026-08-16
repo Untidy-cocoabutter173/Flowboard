@@ -1,0 +1,24 @@
+{
+  "name": "flowboard-plugin",
+  "version": "0.1.0",
+  "description": "面向 DeepSeek Harness 的团队任务与会议协作插件",
+  "author": {
+    "name": "构序科技"
+  },
+  "license": "MIT",
+  "keywords": ["dsh", "任务管理", "会议协作"],
+  "interface": {
+    "displayName": "Flowboard",
+    "shortDescription": "统一管理团队项目、任务、会议与资料。",
+    "longDescription": "在 DeepSeek Harness 中提供项目看板、会议记录与转写、资料库、日历和成员协作。",
+    "developerName": "构序科技",
+    "category": "Productivity",
+    "capabilities": ["Interactive", "Write"],
+    "defaultPrompt": [
+      "查看当前项目的任务进展。",
+      "创建任务并安排负责人和截止时间。",
+      "整理最近会议的记录与总结。"
+    ],
+    "brandColor": "#4D6BFE"
+  }
+}

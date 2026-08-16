@@ -1,0 +1,10 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/typert-protocol-meta" },
+    { "path": "./packages/contracts" },
+    { "path": "./packages/server" },
+    { "path": "./packages/dsh-service" },
+    { "path": "./packages/dsh" }
+  ]
+}

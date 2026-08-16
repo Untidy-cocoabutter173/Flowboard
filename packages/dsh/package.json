@@ -1,0 +1,27 @@
+{
+  "name": "@flowboard/dsh",
+  "version": "0.1.0",
+  "author": "构序科技",
+  "description": "构序科技面向 DeepSeek Harness 的团队任务与会议协作插件",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "files": ["lib/index.js", "lib/types/**/*.d.ts", "cordis.patch.yml"],
+  "dependencies": {
+    "@flowboard/dsh-client": "workspace:^",
+    "@flowboard/dsh-service": "workspace:^"
+  },
+  "license": "MIT"
+}

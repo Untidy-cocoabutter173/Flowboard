@@ -1,0 +1,19 @@
+{
+  "name": "@deepseek-ai/dsh-typert-protocol",
+  "version": "0.1.0-rc.6",
+  "author": "构序科技",
+  "private": true,
+  "type": "module",
+  "main": "lib-types/index.js",
+  "types": "lib-types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib-types/index.d.ts",
+      "default": "./lib-types/index.js"
+    }
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh-typert-protocol-runtime": "npm:@deepseek-ai/dsh-typert-protocol@0.1.0-rc.6",
+    "@deepseek-ai/cordis": "^4.0.1"
+  }
+}

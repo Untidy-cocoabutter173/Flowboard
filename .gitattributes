@@ -1,0 +1,1 @@
+packages/server/vendor/whisper/linux-x64/models/*.bin filter=lfs diff=lfs merge=lfs -text

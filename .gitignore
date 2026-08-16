@@ -1,0 +1,11 @@
+node_modules/
+lib/
+lib-types/
+*.tsbuildinfo
+coverage/
+data/
+.env
+*.db
+*.db-shm
+*.db-wal
+*.tgz

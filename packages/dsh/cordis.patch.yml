@@ -1,0 +1,8 @@
+- insert:
+    - id: flowboard-service
+      name: '@flowboard/dsh-service'
+      config:
+        apiBase: 'http://127.0.0.1:8787'
+        token: 'change-me'
+    - id: flowboard-client
+      name: '@flowboard/dsh-client'
