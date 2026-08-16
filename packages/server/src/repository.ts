@@ -11,6 +11,8 @@ import {
   type CommandRequest,
   type CommandResult,
   type FlowboardSnapshot,
+  type FieldType,
+  type JsonValue,
   type LibraryItemView,
   type MeetingAiActionView,
   type MeetingSettings,
@@ -280,12 +282,13 @@ export class SqliteFlowboardRepository {
       case 'project.update': return this.updateProject(actor, request)
       case 'project.delete': return this.deleteProject(actor, request)
       case 'project.member.set': return this.setProjectMember(actor, request)
+      case 'project.member.remove': return this.removeProjectMember(actor, request)
       case 'workflow.create': return this.createWorkflow(actor, request)
       case 'workflow.update': return this.updateWorkflow(actor, request)
       case 'workflow.delete': return this.deleteWorkflow(actor, request)
       case 'field.create': return this.createField(actor, request)
       case 'field.update': return this.updateField(actor, request)
-      case 'field.delete': return this.deleteSimpleProjectEntity(actor, request, 'task_field_definitions', 'field')
+      case 'field.delete': return this.deleteField(actor, request)
       case 'view.create': return this.createView(actor, request)
       case 'view.update': return this.updateView(actor, request)
       case 'view.delete': return this.deleteSimpleProjectEntity(actor, request, 'saved_views', 'view')
@@ -386,8 +389,22 @@ export class SqliteFlowboardRepository {
   }
 
   private setProjectMember(actor: ActorView, request: Extract<CommandRequest, { type: 'project.member.set' }>): CommandResult {
-    const project = this.requireProject(actor, request.payload.projectId, true).project; this.requireUserInTeam(actor, request.payload.userId, String(project.team_id))
+    const access = this.requireProject(actor, request.payload.projectId, true)
+    if (!ADMIN_ROLES.includes(access.role)) throw forbidden('Only a project administrator can manage members')
+    const project = access.project; this.requireUserInTeam(actor, request.payload.userId, String(project.team_id))
+    const current = this.db.prepare('SELECT role FROM project_members WHERE project_id=? AND user_id=?').get(request.payload.projectId, request.payload.userId) as Row | undefined
+    if (current?.role === 'owner' && request.payload.role !== 'owner' && this.projectOwnerCount(request.payload.projectId) <= 1) throw conflict('A project must keep at least one owner')
     this.db.prepare(`INSERT INTO project_members(project_id,user_id,role,created_at) VALUES(?,?,?,?) ON CONFLICT(project_id,user_id) DO UPDATE SET role=excluded.role`).run(request.payload.projectId, request.payload.userId, request.payload.role, now())
+    return this.record(actor, 'project_member', `${request.payload.projectId}:${request.payload.userId}`, request.type, 1, request.payload)
+  }
+
+  private removeProjectMember(actor: ActorView, request: Extract<CommandRequest, { type: 'project.member.remove' }>): CommandResult {
+    const access = this.requireProject(actor, request.payload.projectId, true)
+    if (!ADMIN_ROLES.includes(access.role)) throw forbidden('Only a project administrator can manage members')
+    const member = this.db.prepare('SELECT role FROM project_members WHERE project_id=? AND user_id=?').get(request.payload.projectId, request.payload.userId) as Row | undefined
+    if (member === undefined) throw notFound('project member', request.payload.userId)
+    if (member.role === 'owner' && this.projectOwnerCount(request.payload.projectId) <= 1) throw conflict('A project must keep at least one owner')
+    this.db.prepare('DELETE FROM project_members WHERE project_id=? AND user_id=?').run(request.payload.projectId, request.payload.userId)
     return this.record(actor, 'project_member', `${request.payload.projectId}:${request.payload.userId}`, request.type, 1, request.payload)
   }
 
@@ -420,7 +437,17 @@ export class SqliteFlowboardRepository {
 
   private updateField(actor: ActorView, request: Extract<CommandRequest, { type: 'field.update' }>): CommandResult {
     const row = this.projectEntity(actor, 'task_field_definitions', request.payload.id, true); const version = this.expect(row, request.expectedVersion)
-    this.db.prepare('UPDATE task_field_definitions SET name=?,required=?,options_json=?,position=?,version=? WHERE id=?').run(request.payload.name ?? row.name, request.payload.required === undefined ? row.required : request.payload.required ? 1 : 0, request.payload.options === undefined ? row.options_json : JSON.stringify(request.payload.options), request.payload.position ?? row.position, version + 1, row.id)
+    const nextType = request.payload.fieldType ?? row.field_type as FieldType
+    const nextOptions = request.payload.options === undefined ? row.options_json : JSON.stringify(request.payload.options)
+    this.db.prepare('UPDATE task_field_definitions SET name=?,field_type=?,required=?,options_json=?,position=?,version=? WHERE id=?').run(request.payload.name ?? row.name, nextType, request.payload.required === undefined ? row.required : request.payload.required ? 1 : 0, nextOptions, request.payload.position ?? row.position, version + 1, row.id)
+    if (nextType !== row.field_type) this.clearCustomField(actor, String(row.project_id), String(row.field_key))
+    return this.record(actor, 'field', String(row.id), request.type, version + 1, this.entity('task_field_definitions', String(row.id)))
+  }
+
+  private deleteField(actor: ActorView, request: Extract<CommandRequest, { type: 'field.delete' }>): CommandResult {
+    const row = this.projectEntity(actor, 'task_field_definitions', request.payload.id, true); const version = this.expect(row, request.expectedVersion)
+    this.db.prepare('UPDATE task_field_definitions SET deleted_at=?,version=? WHERE id=?').run(now(), version + 1, row.id)
+    this.clearCustomField(actor, String(row.project_id), String(row.field_key))
     return this.record(actor, 'field', String(row.id), request.type, version + 1, this.entity('task_field_definitions', String(row.id)))
   }
 
@@ -462,7 +489,9 @@ export class SqliteFlowboardRepository {
   private createTask(actor: ActorView, request: Extract<CommandRequest, { type: 'task.create' }>): CommandResult {
     const access = this.requireProject(actor, request.payload.projectId, true); const project = access.project
     const status = request.payload.statusId ?? String((this.db.prepare(`SELECT id FROM workflow_statuses WHERE project_id=? AND deleted_at IS NULL ORDER BY position LIMIT 1`).get(project.id) as Row | undefined)?.id ?? '')
-    this.requireStatus(project.id, status); if (request.payload.assigneeId !== undefined) this.requireUserInTeam(actor, request.payload.assigneeId, String(project.team_id))
+    this.requireStatus(project.id, status); if (request.payload.assigneeId !== undefined) this.requireProjectMember(actor, request.payload.assigneeId, String(project.id))
+    if (request.payload.categoryId !== undefined) this.requireCategory(actor, request.payload.categoryId)
+    this.validateCustomData(actor, project, request.payload.customData ?? {})
     const sequence = Number(project.next_task_sequence); const id = randomUUID(); const stamp = now()
     this.db.prepare('UPDATE projects SET next_task_sequence=next_task_sequence+1 WHERE id=?').run(project.id)
     this.db.prepare(`INSERT INTO tasks(id,tenant_id,project_id,sequence,title,summary,detail,status_id,category_id,assignee_id,priority,progress,due_at,custom_json,version,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?)`)
@@ -474,7 +503,9 @@ export class SqliteFlowboardRepository {
   private updateTask(actor: ActorView, request: Extract<CommandRequest, { type: 'task.update' }>): CommandResult {
     const row = this.projectEntity(actor, 'tasks', request.payload.id, true); const version = this.expect(row, request.expectedVersion); const project = this.requireProject(actor, String(row.project_id), true).project
     if (request.payload.statusId !== undefined) this.requireStatus(project.id, request.payload.statusId)
-    if (request.payload.assigneeId !== undefined && request.payload.assigneeId !== null) this.requireUserInTeam(actor, request.payload.assigneeId, String(project.team_id))
+    if (request.payload.assigneeId !== undefined && request.payload.assigneeId !== null) this.requireProjectMember(actor, request.payload.assigneeId, String(project.id))
+    if (request.payload.categoryId !== undefined && request.payload.categoryId !== null) this.requireCategory(actor, request.payload.categoryId)
+    if (request.payload.customData !== undefined) this.validateCustomData(actor, project, request.payload.customData)
     const stamp = now()
     this.db.prepare(`UPDATE tasks SET title=?,summary=?,detail=?,status_id=?,category_id=?,assignee_id=?,priority=?,progress=?,due_at=?,custom_json=?,version=?,updated_at=? WHERE id=?`).run(
       request.payload.title ?? row.title, request.payload.summary ?? row.summary, request.payload.detail ?? row.detail,
@@ -512,7 +543,11 @@ export class SqliteFlowboardRepository {
     const startedAt = row.started_at ?? (status === 'live' ? stamp : null)
     const endedAt = status === 'ended' || status === 'cancelled' ? stamp : row.ended_at
     const settings = { ...parseJson<MeetingSettings>(row.settings_json, DEFAULT_SETTINGS), ...request.payload.settings }
-    this.db.prepare('UPDATE meetings SET title=?,status=?,settings_json=?,started_at=?,ended_at=?,version=?,updated_at=? WHERE id=?').run(request.payload.title ?? row.title, status, JSON.stringify(settings), startedAt, endedAt, version + 1, stamp, row.id)
+    this.db.prepare('UPDATE meetings SET title=?,status=?,settings_json=?,transcript=?,summary=?,decisions_json=?,risks_json=?,started_at=?,ended_at=?,version=?,updated_at=? WHERE id=?').run(
+      request.payload.title ?? row.title, status, JSON.stringify(settings), request.payload.transcript ?? row.transcript,
+      request.payload.summary ?? row.summary, request.payload.decisions === undefined ? row.decisions_json : JSON.stringify(request.payload.decisions),
+      request.payload.risks === undefined ? row.risks_json : JSON.stringify(request.payload.risks), startedAt, endedAt, version + 1, stamp, row.id,
+    )
     if (request.payload.projectIds !== undefined) {
       this.validateProjectSet(actor, request.payload.projectIds, String(row.team_id), true)
       this.replaceProjectLinks('project_meetings', 'meeting_id', String(row.id), request.payload.projectIds, stamp)
@@ -668,6 +703,66 @@ export class SqliteFlowboardRepository {
     if (!(allowed[from] ?? []).includes(to)) throw conflict('Invalid meeting status transition', { from, to })
   }
 
+  private validateCustomData(actor: ActorView, project: Row, data: Record<string, JsonValue>): void {
+    const definitions = this.db.prepare('SELECT * FROM task_field_definitions WHERE project_id=? AND deleted_at IS NULL').all(project.id) as Row[]
+    const byKey = new Map(definitions.map(field => [String(field.field_key), field]))
+    for (const key of Object.keys(data)) {
+      if (!byKey.has(key)) throw new FlowboardError('VALIDATION_ERROR', `Unknown task field: ${key}`, 400)
+    }
+    for (const field of definitions) {
+      const key = String(field.field_key)
+      const value = data[key]
+      const empty = value === undefined || value === null || value === '' || (Array.isArray(value) && value.length === 0)
+      if (Boolean(field.required) && empty) throw new FlowboardError('VALIDATION_ERROR', `${String(field.name)} is required`, 400)
+      if (empty) continue
+      const options = parseJson<string[]>(field.options_json, [])
+      switch (field.field_type as FieldType) {
+        case 'text':
+          if (typeof value !== 'string') throw this.invalidField(field)
+          break
+        case 'number':
+          if (typeof value !== 'number' || !Number.isFinite(value)) throw this.invalidField(field)
+          break
+        case 'boolean':
+          if (typeof value !== 'boolean') throw this.invalidField(field)
+          break
+        case 'date':
+          if (typeof value !== 'string' || Number.isNaN(new Date(value).getTime())) throw this.invalidField(field)
+          break
+        case 'select':
+          if (typeof value !== 'string' || (options.length > 0 && !options.includes(value))) throw this.invalidField(field)
+          break
+        case 'multi_select':
+          if (!Array.isArray(value) || value.some(item => typeof item !== 'string' || (options.length > 0 && !options.includes(item)))) throw this.invalidField(field)
+          break
+        case 'person':
+          if (typeof value !== 'string') throw this.invalidField(field)
+          this.requireProjectMember(actor, value, String(project.id))
+          break
+      }
+    }
+  }
+
+  private invalidField(field: Row): FlowboardError {
+    return new FlowboardError('VALIDATION_ERROR', `Invalid value for ${String(field.name)}`, 400)
+  }
+
+  private clearCustomField(actor: ActorView, projectId: string, key: string): void {
+    const rows = this.db.prepare('SELECT * FROM tasks WHERE project_id=? AND deleted_at IS NULL').all(projectId) as Row[]
+    for (const row of rows) {
+      const data = parseJson<Record<string, JsonValue>>(row.custom_json, {})
+      if (!(key in data)) continue
+      delete data[key]
+      const stamp = now(); const version = Number(row.version) + 1
+      this.db.prepare('UPDATE tasks SET custom_json=?,version=?,updated_at=? WHERE id=?').run(JSON.stringify(data), version, stamp, row.id)
+      this.record(actor, 'task', String(row.id), 'field.value.clear', version, this.entity('tasks', String(row.id)))
+    }
+  }
+
+  private projectOwnerCount(projectId: string): number {
+    return Number((this.db.prepare("SELECT COUNT(*) AS value FROM project_members WHERE project_id=? AND role='owner'").get(projectId) as Row).value)
+  }
+
   private requireStatus(projectId: string, statusId: string): Row {
     const row = this.db.prepare('SELECT * FROM workflow_statuses WHERE id=? AND project_id=? AND deleted_at IS NULL').get(statusId, projectId) as Row | undefined
     if (row === undefined) throw notFound('workflow status', statusId)
@@ -738,6 +833,16 @@ export class SqliteFlowboardRepository {
     const row = this.requireUser(actor, userId)
     if (this.db.prepare('SELECT 1 FROM team_members WHERE team_id=? AND user_id=?').get(teamId, userId) === undefined) throw conflict('Person is not a member of the project team', { userId })
     return row
+  }
+
+  private requireProjectMember(actor: ActorView, userId: string, projectId: string): Row {
+    const row = this.requireUser(actor, userId)
+    if (this.db.prepare('SELECT 1 FROM project_members WHERE project_id=? AND user_id=?').get(projectId, userId) === undefined) throw conflict('Person is not a member of the project', { userId })
+    return row
+  }
+
+  private requireCategory(actor: ActorView, categoryId: string): Row {
+    return this.tenantEntity(actor, 'categories', categoryId)
   }
 
   private projectEntity(actor: ActorView, table: 'tasks' | 'workflow_statuses' | 'task_field_definitions' | 'saved_views', id: string, write: boolean): Row {

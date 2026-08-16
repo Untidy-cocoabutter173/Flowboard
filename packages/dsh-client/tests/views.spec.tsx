@@ -22,6 +22,7 @@ import { CalendarView } from '../src/client/domain/calendar.tsx'
 import { LibraryView } from '../src/client/domain/library.tsx'
 import { MeetingsView } from '../src/client/domain/meetings.tsx'
 import { PeopleView } from '../src/client/domain/people.tsx'
+import { ProjectMembersView } from '../src/client/domain/project-members.tsx'
 import { ProjectsView } from '../src/client/domain/projects.tsx'
 import type { CommandHandler } from '../src/client/domain/shared.tsx'
 
@@ -34,9 +35,9 @@ const snapshot: FlowboardSnapshot = {
   projects: [{ id: 'project-1', tenantId: 'tenant-1', teamId: 'team-1', parentId: null, key: 'AUT', name: '秋季发布', description: '核心版本交付', color: '#4D6BFE', role: 'owner', version: 1, createdAt: '2026-08-17T00:00:00Z', updatedAt: '2026-08-17T00:00:00Z' }],
   projectMembers: [{ projectId: 'project-1', userId: 'user-1', role: 'owner' }],
   workflowStatuses: [{ id: 'status-1', tenantId: 'tenant-1', projectId: 'project-1', name: '进行中', color: '#4D6BFE', position: 0, category: 'active', version: 1 }],
-  fieldDefinitions: [], savedViews: [],
+  fieldDefinitions: [{ id: 'field-1', tenantId: 'tenant-1', projectId: 'project-1', key: 'channels', name: '发布渠道', type: 'multi_select', required: false, options: ['Web', 'App'], position: 0, version: 1 }], savedViews: [],
   categories: [{ id: 'category-1', tenantId: 'tenant-1', name: '产品', color: '#3370ff', version: 1 }],
-  tasks: [{ id: 'task-1', tenantId: 'tenant-1', projectId: 'project-1', sequence: 1, title: '验收工作台', summary: '检查主要路径', detail: '', statusId: 'status-1', categoryId: 'category-1', assigneeId: 'user-1', priority: 'high', progress: .6, dueAt: '2026-08-20T09:00:00Z', customData: {}, version: 1, createdAt: '2026-08-17T00:00:00Z', updatedAt: '2026-08-17T00:00:00Z' }],
+  tasks: [{ id: 'task-1', tenantId: 'tenant-1', projectId: 'project-1', sequence: 1, title: '验收工作台', summary: '检查主要路径', detail: '# 验收', statusId: 'status-1', categoryId: 'category-1', assigneeId: 'user-1', priority: 'high', progress: .6, dueAt: '2026-08-20T09:00:00Z', customData: { channels: ['Web', 'App'] }, version: 1, createdAt: '2026-08-17T00:00:00Z', updatedAt: '2026-08-17T00:00:00Z' }],
   meetings: [{ id: 'meeting-1', tenantId: 'tenant-1', teamId: 'team-1', title: '发布周会', status: 'scheduled', settings: { automation: 'suggest', feedback: 'activity', answerQuestions: true, silenceSec: 3 }, transcript: '确认发布范围', summary: '按计划推进', decisions: [], risks: [], startedAt: null, endedAt: null, version: 1, createdAt: '2026-08-17T00:00:00Z', updatedAt: '2026-08-17T00:00:00Z' }],
   utterances: [], aiActions: [],
   library: [{ id: 'library-1', tenantId: 'tenant-1', teamId: 'team-1', type: 'doc', title: '发布说明', content: '版本范围', url: null, categoryId: null, sourceMeetingId: null, version: 1, createdAt: '2026-08-17T00:00:00Z', updatedAt: '2026-08-17T00:00:00Z' }],
@@ -53,6 +54,7 @@ describe('六个业务页面', () => {
     ['资料', () => <LibraryView snapshot={snapshot} projectId="project-1" command={command} />, '发布说明'],
     ['日历', () => <CalendarView snapshot={snapshot} projectId="project-1" command={command} />, '提测截止'],
     ['成员', () => <PeopleView snapshot={snapshot} command={command} />, '林晓'],
+    ['项目成员', () => <ProjectMembersView snapshot={snapshot} projectId="project-1" command={command} />, '1 位成员'],
   ])('%s 页面可完整渲染', (_name, view, expected) => {
     expect(renderToStaticMarkup(view())).toContain(expected)
   })

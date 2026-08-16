@@ -13,6 +13,7 @@ export type CalendarEventType = 'meeting' | 'deadline' | 'event' | 'reminder'
 export type SavedViewType = 'board' | 'table' | 'calendar'
 export type FieldType = 'text' | 'number' | 'boolean' | 'date' | 'select' | 'multi_select' | 'person'
 export type JsonScalar = string | number | boolean | null
+export type JsonValue = JsonScalar | JsonScalar[]
 
 export interface ActorView {
   id: string
@@ -123,7 +124,7 @@ export interface TaskView {
   priority: Priority
   progress: number
   dueAt: string | null
-  customData: Record<string, JsonScalar>
+  customData: Record<string, JsonValue>
   version: number
   createdAt: string
   updatedAt: string
@@ -300,11 +301,12 @@ export type CommandRequest =
   | CommandEnvelope<'project.update', { id: string; key?: string; name?: string; description?: string; color?: string }>
   | CommandEnvelope<'project.delete', { id: string }>
   | CommandEnvelope<'project.member.set', { projectId: string; userId: string; role: AccessRole }>
+  | CommandEnvelope<'project.member.remove', { projectId: string; userId: string }>
   | CommandEnvelope<'workflow.create', { projectId: string; name: string; color?: string; category: 'backlog' | 'active' | 'done'; position?: number }>
   | CommandEnvelope<'workflow.update', { id: string; name?: string; color?: string; category?: 'backlog' | 'active' | 'done'; position?: number }>
   | CommandEnvelope<'workflow.delete', { id: string }>
   | CommandEnvelope<'field.create', { projectId: string; key: string; name: string; fieldType: FieldType; required?: boolean; options?: string[]; position?: number }>
-  | CommandEnvelope<'field.update', { id: string; name?: string; required?: boolean; options?: string[]; position?: number }>
+  | CommandEnvelope<'field.update', { id: string; name?: string; fieldType?: FieldType; required?: boolean; options?: string[]; position?: number }>
   | CommandEnvelope<'field.delete', { id: string }>
   | CommandEnvelope<'view.create', { projectId: string; name: string; viewType: SavedViewType; groupBy?: string; fields?: string[] }>
   | CommandEnvelope<'view.update', { id: string; name?: string; groupBy?: string | null; fields?: string[] }>
@@ -312,11 +314,11 @@ export type CommandRequest =
   | CommandEnvelope<'category.create', { name: string; color?: string }>
   | CommandEnvelope<'category.update', { id: string; name?: string; color?: string }>
   | CommandEnvelope<'category.delete', { id: string }>
-  | CommandEnvelope<'task.create', { projectId: string; title: string; summary?: string; detail?: string; statusId?: string; categoryId?: string; assigneeId?: string; priority?: Priority; progress?: number; dueAt?: string; customData?: Record<string, JsonScalar>; meetingIds?: string[]; libraryItemIds?: string[] }>
-  | CommandEnvelope<'task.update', { id: string; title?: string; summary?: string; detail?: string; statusId?: string; categoryId?: string | null; assigneeId?: string | null; priority?: Priority; progress?: number; dueAt?: string | null; customData?: Record<string, JsonScalar>; meetingIds?: string[]; libraryItemIds?: string[] }>
+  | CommandEnvelope<'task.create', { projectId: string; title: string; summary?: string; detail?: string; statusId?: string; categoryId?: string; assigneeId?: string; priority?: Priority; progress?: number; dueAt?: string; customData?: Record<string, JsonValue>; meetingIds?: string[]; libraryItemIds?: string[] }>
+  | CommandEnvelope<'task.update', { id: string; title?: string; summary?: string; detail?: string; statusId?: string; categoryId?: string | null; assigneeId?: string | null; priority?: Priority; progress?: number; dueAt?: string | null; customData?: Record<string, JsonValue>; meetingIds?: string[]; libraryItemIds?: string[] }>
   | CommandEnvelope<'task.delete', { id: string }>
   | CommandEnvelope<'meeting.create', { teamId: string; projectIds: string[]; title: string; settings?: Partial<MeetingSettings> }>
-  | CommandEnvelope<'meeting.update', { id: string; title?: string; status?: MeetingStatus; projectIds?: string[]; settings?: Partial<MeetingSettings> }>
+  | CommandEnvelope<'meeting.update', { id: string; title?: string; status?: MeetingStatus; projectIds?: string[]; settings?: Partial<MeetingSettings>; transcript?: string; summary?: string; decisions?: string[]; risks?: string[] }>
   | CommandEnvelope<'meeting.delete', { id: string }>
   | CommandEnvelope<'meeting.transcript.append', { id: string; text: string; speakerId?: string; clientSegmentId?: string; startedAt?: string; endedAt?: string }>
   | CommandEnvelope<'meeting.action.append', { id: string; callId?: string; kind: MeetingAiActionView['kind']; summary: string; entityType?: string; entityId?: string; ok?: boolean }>
@@ -364,7 +366,7 @@ const fieldType = z.enum(['text', 'number', 'boolean', 'date', 'select', 'multi_
 const statusCategory = z.enum(['backlog', 'active', 'done'])
 const dateTime = z.string().min(1).max(64)
 const scalar = z.union([z.string(), z.number(), z.boolean(), z.null()])
-const customData = z.record(z.string().min(1).max(120), scalar)
+const customData = z.record(z.string().min(1).max(120), z.union([scalar, z.array(scalar).max(100)]))
 const settings = z.object({ automation, feedback, answerQuestions: z.boolean(), silenceSec: z.number().min(1).max(30) })
 const partialSettings = settings.partial()
 const idList = z.array(id).max(100)
@@ -382,17 +384,17 @@ export const commandRequestSchema: z.ZodType<CommandRequest> = z.discriminatedUn
   envelope('person.delete', z.object({ id })),
   envelope('project.create', z.object({ teamId: id, key: z.string().trim().min(2).max(12).regex(/^[A-Za-z][A-Za-z0-9]*$/), name: shortText, description: text.optional(), color: color.optional(), parentId: id.optional() })),
   envelope('project.update', z.object({ id, key: z.string().trim().min(2).max(12).regex(/^[A-Za-z][A-Za-z0-9]*$/).optional(), name: shortText.optional(), description: text.optional(), color: color.optional() })),
-  envelope('project.delete', z.object({ id })), envelope('project.member.set', z.object({ projectId: id, userId: id, role })),
+  envelope('project.delete', z.object({ id })), envelope('project.member.set', z.object({ projectId: id, userId: id, role })), envelope('project.member.remove', z.object({ projectId: id, userId: id })),
   envelope('workflow.create', z.object({ projectId: id, name: shortText, color: color.optional(), category: statusCategory, position: z.number().int().nonnegative().optional() })),
   envelope('workflow.update', z.object({ id, name: shortText.optional(), color: color.optional(), category: statusCategory.optional(), position: z.number().int().nonnegative().optional() })),
   envelope('workflow.delete', z.object({ id })),
   envelope('field.create', z.object({ projectId: id, key: z.string().trim().min(1).max(80).regex(/^[A-Za-z][A-Za-z0-9_]*$/), name: shortText, fieldType, required: z.boolean().optional(), options: z.array(shortText).max(100).optional(), position: z.number().int().nonnegative().optional() })),
-  envelope('field.update', z.object({ id, name: shortText.optional(), required: z.boolean().optional(), options: z.array(shortText).max(100).optional(), position: z.number().int().nonnegative().optional() })), envelope('field.delete', z.object({ id })),
+  envelope('field.update', z.object({ id, name: shortText.optional(), fieldType: fieldType.optional(), required: z.boolean().optional(), options: z.array(shortText).max(100).optional(), position: z.number().int().nonnegative().optional() })), envelope('field.delete', z.object({ id })),
   envelope('view.create', z.object({ projectId: id, name: shortText, viewType, groupBy: shortText.optional(), fields: z.array(shortText).max(100).optional() })), envelope('view.update', z.object({ id, name: shortText.optional(), groupBy: shortText.nullable().optional(), fields: z.array(shortText).max(100).optional() })), envelope('view.delete', z.object({ id })),
   envelope('category.create', z.object({ name: shortText, color: color.optional() })), envelope('category.update', z.object({ id, name: shortText.optional(), color: color.optional() })), envelope('category.delete', z.object({ id })),
   envelope('task.create', z.object({ projectId: id, title: shortText, summary: text.optional(), detail: text.optional(), statusId: id.optional(), categoryId: id.optional(), assigneeId: id.optional(), priority: priority.optional(), progress: z.number().min(0).max(1).optional(), dueAt: dateTime.optional(), customData: customData.optional(), meetingIds: idList.optional(), libraryItemIds: idList.optional() })),
   envelope('task.update', z.object({ id, title: shortText.optional(), summary: text.optional(), detail: text.optional(), statusId: id.optional(), categoryId: id.nullable().optional(), assigneeId: id.nullable().optional(), priority: priority.optional(), progress: z.number().min(0).max(1).optional(), dueAt: dateTime.nullable().optional(), customData: customData.optional(), meetingIds: idList.optional(), libraryItemIds: idList.optional() })), envelope('task.delete', z.object({ id })),
-  envelope('meeting.create', z.object({ teamId: id, projectIds: idList.min(1), title: shortText, settings: partialSettings.optional() })), envelope('meeting.update', z.object({ id, title: shortText.optional(), status: meetingStatus.optional(), projectIds: idList.min(1).optional(), settings: partialSettings.optional() })), envelope('meeting.delete', z.object({ id })),
+  envelope('meeting.create', z.object({ teamId: id, projectIds: idList.min(1), title: shortText, settings: partialSettings.optional() })), envelope('meeting.update', z.object({ id, title: shortText.optional(), status: meetingStatus.optional(), projectIds: idList.min(1).optional(), settings: partialSettings.optional(), transcript: text.optional(), summary: text.optional(), decisions: z.array(shortText).max(100).optional(), risks: z.array(shortText).max(100).optional() })), envelope('meeting.delete', z.object({ id })),
   envelope('meeting.transcript.append', z.object({ id, text: z.string().trim().min(1).max(200_000), speakerId: id.optional(), clientSegmentId: id.optional(), startedAt: dateTime.optional(), endedAt: dateTime.optional() })),
   envelope('meeting.action.append', z.object({ id, callId: id.optional(), kind: z.enum(['task', 'document', 'decision', 'note', 'finalize']), summary: shortText, entityType: shortText.optional(), entityId: id.optional(), ok: z.boolean().optional() })),
   envelope('meeting.finalize', z.object({ id, summary: text, decisions: z.array(shortText).max(100).optional(), risks: z.array(shortText).max(100).optional(), actionItems: z.array(z.object({ key: id, projectId: id, title: shortText, summary: text.optional(), assigneeId: id.optional(), dueAt: dateTime.optional(), priority: priority.optional() })).max(100).optional(), documents: z.array(z.object({ key: id, title: shortText, content: text, projectIds: idList.min(1) })).max(100).optional() })),

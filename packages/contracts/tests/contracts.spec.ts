@@ -13,6 +13,23 @@ describe('Flowboard contracts', () => {
     expect(command.expectedVersion).toBe(3)
   })
 
+  it('accepts configurable fields and multi-select task values', () => {
+    const field = commandRequestSchema.parse({
+      idempotencyKey: 'field-update-1234',
+      type: 'field.update',
+      expectedVersion: 1,
+      payload: { id: 'field-1', name: '发布渠道', fieldType: 'multi_select', options: ['Web', 'App'] },
+    })
+    const task = commandRequestSchema.parse({
+      idempotencyKey: 'task-fields-1234',
+      type: 'task.update',
+      expectedVersion: 2,
+      payload: { id: 'task-1', customData: { channels: ['Web', 'App'], estimate: 8, approved: true } },
+    })
+    expect(field.type).toBe('field.update')
+    expect(task.type).toBe('task.update')
+  })
+
   it('rejects oversized upload tickets', () => {
     expect(() => uploadTicketRequestSchema.parse({
       meetingId: 'meeting-1',

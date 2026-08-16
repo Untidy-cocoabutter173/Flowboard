@@ -17,6 +17,11 @@ for (const file of files) {
   }
   if (file.endsWith('.client.js') && /\bfetch\s*\(/.test(source)) throw new Error(`${file}: client fetch is forbidden`)
   if (!/^return\s+\{/m.test(source)) throw new Error(`${file}: must be a function body returning a plugin`)
+  if (file.endsWith('.client.js')) {
+    for (const marker of ['Jira 看板', '任务表', '项目成员', 'field.create', 'project.member.remove', '保存 Markdown']) {
+      if (!source.includes(marker)) throw new Error(`${file}: missing dynamic workspace capability ${marker}`)
+    }
+  }
 }
 
 console.log('dynamic Flowboard Host/Client sources are valid')

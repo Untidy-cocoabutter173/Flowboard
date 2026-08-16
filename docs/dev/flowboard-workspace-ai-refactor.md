@@ -37,6 +37,10 @@ erDiagram
 
 看板是任务查询的保存视图。核心任务字段使用物理列；自定义字段保存在 `custom_json`，定义由 `task_field_definitions` 管理。每个项目拥有独立 `workflow_statuses`，`saved_views` 保存 board/table/calendar 的过滤、排序、分组和字段配置。
 
+任务工作台提供两种互补视图：Jira 看板按状态、优先级、负责人或分类组织任务，状态分组下可拖放任务并管理工作流列；多维任务表将标题、状态、负责人、优先级、进度、截止时间和项目自定义字段作为可直接编辑的单元格。自定义字段支持 `text/number/boolean/date/select/multi_select/person`，字段改类型时清除不兼容旧值，避免带类型错误的数据继续参与查询。
+
+负责人必须是当前项目成员。组织人员管理负责人员身份，项目成员管理负责项目角色与任务分配范围；同一人员可加入多个项目，其个人任务表和看板按 `assignee_id` 跨项目聚合。任务详情、会议转录与总结、资料正文均使用 Markdown 编辑入口，资料、会议与任务仍通过结构化关系表关联，不从 Markdown 文本反向推断关系。
+
 ## AI 会议流程
 
 ```mermaid
@@ -79,20 +83,23 @@ sequenceDiagram
 
 ## DSH 动态与静态交付
 
-动态 Cordis Package 是日常开发和快速更新的主形态。仓库生成 `dynamic/flowboard.host.js` 与 `dynamic/flowboard.client.js`，文件内容分别是可直接传给 `cordis_define.code.host` 和 `cordis_define.code.client` 的纯 JavaScript 函数体。动态源码不得包含 TypeScript、JSX、静态 import 或浏览器 `fetch`；Host 通过 `harness.handle` 暴露 JSON 方法并通过 `harness.defineTool/registerTool` 注册 Agent 工具，Client 通过 `host.call` 调 Host，并通过 DSH Slot 注册页面与会议 Dock。
+动态 Cordis Package 是日常开发和快速更新的主形态。仓库生成 `dynamic/flowboard.host.js` 与 `dynamic/flowboard.client.js`，文件内容分别是可直接传给 `cordis_define.code.host` 和 `cordis_define.code.client` 的纯 JavaScript 函数体。动态源码不得包含 TypeScript、JSX、静态 import 或浏览器 `fetch`；Host 通过 `harness.handle` 暴露 JSON 方法并通过 `harness.defineTool/registerTool` 注册 Agent 工具，Client 通过 `host.call` 调 Host，并通过 DSH Slot 注册页面与会议 Dock。动态 Client 必须与静态 Client 保持项目六子页、可编辑 Jira 看板、多维任务表、人员管理和 Markdown 编辑的能力基线，动态校验脚本检查这些标记，禁止再次退化为只读简化面板。
 
 静态 `@flowboard/dsh-service` 与 `@flowboard/dsh-client` 保留为部署和发布形态。动态与静态实现共享同一 Flowboard HTTP v2 契约、工具名称、幂等规则、导航信息架构和页面行为；静态打包不再是本地开发的前置条件。仓库提供动态源码语法检查和生成命令，必要时才运行静态 bundle 打包。
 
 ## 任务与验收
 
-- [ ] 全新 v2 schema，旧 schema 明确拒绝启动
-- [ ] 左侧导航与所有项目、会议、资料、个人、团队页面
-- [ ] 项目独立看板和任务表视图
-- [ ] 跨项目会议、资料及会议产物关联
-- [ ] VAD 连续分段转写、DSH 候选稿和静音自动提交
-- [ ] AI 会议工具使用 DSH callId 作为稳定幂等来源
-- [ ] 动态 Host/Client 函数体可直接通过 `cordis_define` 定义与运行
-- [ ] `flowboard_snapshot` 不经过 Typert Remote 自调用且不会无故中断
-- [ ] 会议结束结构化整理与可审计操作记录
-- [ ] Host/Client 分别编译，浏览器 bundle 不包含 Node 能力
-- [ ] `pnpm run check` 与插件 manifest 校验通过
+- [x] 全新 v2 schema，旧 schema 明确拒绝启动
+- [x] 左侧导航与所有项目、会议、资料、个人、团队页面
+- [x] 项目独立 Jira 看板和多维任务表视图
+- [x] 项目成员管理与跨项目个人任务关联
+- [x] 任务、会议、资料 Markdown 打开与编辑
+- [x] 跨项目会议、资料及会议产物关联
+- [x] VAD 连续分段转写、DSH 候选稿和静音自动提交
+- [x] AI 会议工具使用 DSH callId 作为稳定幂等来源
+- [x] 动态 Host/Client 函数体可直接通过 `cordis_define` 定义与运行
+- [x] 动态 Client 与静态 Client 保持项目工作台能力基线
+- [x] `flowboard_snapshot` 不经过 Typert Remote 自调用且不会无故中断
+- [x] 会议结束结构化整理与可审计操作记录
+- [x] Host/Client 分别编译，浏览器 bundle 不包含 Node 能力
+- [x] `pnpm run check` 与插件 manifest 校验通过

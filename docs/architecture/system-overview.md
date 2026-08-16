@@ -86,7 +86,7 @@ sequenceDiagram
 
 ## 动态与静态交付
 
-动态插件是开发主形态。`dynamic/flowboard.host.js` 和 `dynamic/flowboard.client.js` 是函数体而不是模块，不经过 TypeScript、JSX 或 bundler。动态 Client 禁止 `fetch`、Node 和 import，网络与音频上传均通过 `host.call` 交给 Host。⚡
+动态插件是开发主形态。`dynamic/flowboard.host.js` 和 `dynamic/flowboard.client.js` 是函数体而不是模块，不经过 TypeScript、JSX 或 bundler。动态 Client 禁止 `fetch`、Node 和 import，网络与音频上传均通过 `host.call` 交给 Host。动态与静态 Client 都必须提供项目概览、Jira 看板、多维任务表、项目会议、项目资料、项目成员以及 Markdown 编辑；`dynamic:check` 同时验证隔离约束与工作台能力标记。⚡
 
 静态包用于发布：`pnpm run build` 才生成 Host/Client bundle。`pnpm run check` 验证动态源码、TypeScript、测试和 package 文件清单，但不要求先打静态 bundle。🆕
 

@@ -8,6 +8,10 @@ Flowboard 是面向 DeepSeek Harness（DSH）的 AI 工作空间。它把项目�
 
 - 左侧导航：首页、项目树、会议、资料、我的工作、组织。
 - 每个项目包含概览、看板、任务表、会议、资料和成员。
+- Jira 看板支持任务拖放、状态列配置、负责人、优先级、进度和截止时间编辑。
+- 任务表采用多维表格交互，内置字段可原位编辑，自定义表头支持文本、数字、勾选、日期、单选、多选和人员类型。
+- 项目成员决定任务可选负责人；个人任务和个人看板按负责人跨项目聚合。
+- 任务详情、会议总结和项目资料可作为 Markdown 打开、编辑和预览。
 - 项目、会议、资料是显式多对多关系；任务归属一个主项目，并可关联多个会议和资料。
 - 我的任务、日历和个人看板跨项目聚合，不复制业务数据。
 - 首页可直接开始 AI 会议。浏览器使用 VAD 自动分段，转写持续写入 DSH composer，静音后自动提交给 AI。
@@ -36,7 +40,7 @@ Agent 工具  -> 静态/动态 Host                     ┘
 - `dynamic/flowboard.host.js`
 - `dynamic/flowboard.client.js`
 
-动态 Client 是纯 JavaScript、React `createElement`，不包含 import、TypeScript、JSX、Node 能力或 `fetch`。浏览器通过 `host.call` 访问动态 Host。Host 从环境读取：
+动态 Client 是纯 JavaScript、React `createElement`，不包含 import、TypeScript、JSX、Node 能力或 `fetch`。它与静态 Client 提供同一套项目子菜单、Jira 看板、多维任务表、成员管理、项目会议/资料和 Markdown 编辑能力；浏览器统一通过 `host.call` 访问动态 Host。Host 从环境读取：
 
 | 环境变量 | 默认值 | 说明 |
 | --- | --- | --- |
