@@ -49,6 +49,20 @@ describe('Flowboard Agent tools', () => {
     }), expect.any(AbortSignal))
   })
 
+  it('会议中创建项目会自动追加项目操作记录', async () => {
+    const { tools, client } = setup()
+    client.command
+      .mockResolvedValueOnce({ cursor: 1, entityType: 'project', entityId: 'project-new', version: 1, replayed: false })
+      .mockResolvedValueOnce({ cursor: 2, entityType: 'meeting', entityId: 'meeting-1', version: 4, replayed: false })
+    await tools.find(item => item.name === 'flowboard_create_project')!.execute({
+      name: '发布平台', meeting_id: 'meeting-1',
+    }, exec('create-project-in-meeting'))
+    expect(client.command).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      type: 'meeting.action.append',
+      payload: expect.objectContaining({ id: 'meeting-1', kind: 'project', summary: '创建项目：发布平台', entityId: 'project-new' }),
+    }), expect.any(AbortSignal))
+  })
+
   it('AI 提问会持久化 assistant 澄清意图', async () => {
     const { tools, client } = setup()
     client.command.mockResolvedValueOnce({ cursor: 1, entityType: 'meeting_intent', entityId: 'intent-1', version: 3, replayed: false })
@@ -73,6 +87,28 @@ describe('Flowboard Agent tools', () => {
       type: 'meeting.action.append',
       payload: expect.objectContaining({ id: 'meeting-1', kind: 'note', summary: '目前已创建项目，正在整理资料。' }),
     }), expect.any(AbortSignal))
+  })
+
+  it('批次确认先记录用户意图，再一次推进分析水位', async () => {
+    const { tools, client } = setup()
+    client.snapshot.mockResolvedValueOnce({
+      meetingAgentBindings: [{ meetingId: 'meeting-1', state: 'active', deliveredSequence: 5, analyzedSequence: 2 }],
+      meetingIntents: [{ meetingId: 'meeting-1', payload: { title: '已有任务', origin: 'user' }, evidenceFromSequence: 3, evidenceToSequence: 5 }],
+    })
+    client.command
+      .mockResolvedValueOnce({ cursor: 3, entityType: 'meeting_intent', entityId: 'intent-batch', version: 1, replayed: false })
+      .mockResolvedValueOnce({ cursor: 4, entityType: 'meeting_agent_binding', entityId: 'meeting-1', version: 1, replayed: false })
+    const result = await tools.find(item => item.name === 'flowboard_ack_meeting')!.execute({
+      meeting_id: 'meeting-1', analyzed_sequence: 5, analysis_summary: '识别到两个诉求', user_intents: ['创建发布项目', '已有任务', '创建发布项目'],
+    }, exec('ack-batch'))
+    expect(client.command).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      type: 'meeting.intent.record',
+      payload: { meetingId: 'meeting-1', intentKey: 'batch-3-5-0', title: '创建发布项目', evidenceFromSequence: 3, evidenceToSequence: 5 },
+    }), expect.any(AbortSignal))
+    expect(client.command).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      type: 'meeting.agent.progress', payload: { id: 'meeting-1', analyzedSequence: 5 },
+    }), expect.any(AbortSignal))
+    expect(result).toMatchObject({ analysisSummary: '识别到两个诉求', userIntents: ['创建发布项目', '已有任务'] })
   })
 
   it('会议意图工具携带稳定键、证据范围和提交游标', async () => {

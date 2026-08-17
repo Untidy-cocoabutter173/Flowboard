@@ -615,12 +615,14 @@ function MeetingDetail({
   command,
   navigate,
   onStop,
+  stopping,
 }: {
   snapshot: FlowboardSnapshot;
   meeting: MeetingView;
   command(value: ClientCommand): Promise<unknown>;
   navigate(route: FlowboardRoute): void;
   onStop(meeting: MeetingView): Promise<void>;
+  stopping: boolean;
 }) {
   const [editing, setEditing] = useState<"transcript" | "summary" | null>(null);
   const [transcriptExpanded, setTranscriptExpanded] = useState(false);
@@ -632,7 +634,6 @@ function MeetingDetail({
   const allActions = snapshot.aiActions.filter(
     (item) => item.meetingId === meeting.id,
   );
-  const replies = allActions.filter((item) => item.kind === "note");
   const actions = allActions.filter((item) => item.kind !== "note");
   const binding = snapshot.meetingAgentBindings.find(
     (item) => item.meetingId === meeting.id,
@@ -728,8 +729,8 @@ function MeetingDetail({
             </div>
             <div className={css.transcriptHeaderActions}>
               {meeting.status === "live" && (
-                <Button danger type="primary" size="middle" className={css.transcriptEndButton!} icon={<StopOutlined />} onClick={() => void onStop(meeting)}>
-                  结束会议
+                <Button danger type="primary" size="middle" className={css.transcriptEndButton!} icon={<StopOutlined />} loading={stopping} disabled={stopping} onClick={() => void onStop(meeting)}>
+                  {stopping ? "正在结束" : "结束会议"}
                 </Button>
               )}
               <Tooltip title={transcriptCollapsed ? "展开转录" : "收起转录"}>
@@ -779,20 +780,14 @@ function MeetingDetail({
             {userIntents.length === 0 && <Empty title="暂无用户意图" />}
           </section>
           <section>
-            <header><QuestionCircleOutlined /><h3>AI 回复与提问</h3><span>{assistantQuestions.length + replies.length}</span></header>
+            <header><QuestionCircleOutlined /><h3>AI 提问</h3><span>{assistantQuestions.length}</span></header>
             {assistantQuestions.map((item) => (
               <article key={item.id} className={css.assistantQuestion}>
                 <span className={css.intentStatus}>{item.status}</span>
                 <div><strong>{item.payload.question ?? item.payload.title}</strong><small>AI 提问 · 等待会议中确认</small></div>
               </article>
             ))}
-            {replies.map((item) => (
-              <article key={item.id} className={css.assistantReply}>
-                <span className={css.replyLabel}>回复</span>
-                <div><strong>{item.summary}</strong><small>{formatDate(item.createdAt)}</small></div>
-              </article>
-            ))}
-            {assistantQuestions.length + replies.length === 0 && <Empty title="暂无 AI 回复或提问" />}
+            {assistantQuestions.length === 0 && <Empty title="暂无 AI 提问" />}
           </section>
           <section>
             <header><FileTextOutlined /><h3>会议资料</h3><span>{documents.size}</span></header>
@@ -1025,6 +1020,7 @@ export function FlowboardView(
           command={props.command}
           navigate={props.navigate}
           onStop={stopMeeting}
+          stopping={state.meetingRuntimes[sessionId]?.meetingId === meeting.id && state.meetingRuntimes[sessionId]?.stopping === true}
         />
       );
   } else if (route.area === "library")
@@ -1118,7 +1114,7 @@ export function FlowboardMeetingDock(
         item.meetingId === meeting?.id &&
         !["applied", "superseded", "rejected"].includes(item.status),
     ).length ?? 0;
-  const active = meeting?.status === "live";
+  const active = meeting?.status === "live" && runtime?.stopping !== true;
   const onSegment = useCallback(
     async (blob: Blob, startedAt: string, endedAt: string) => {
       if (meeting === undefined) return;
@@ -1152,7 +1148,12 @@ export function FlowboardMeetingDock(
     stoppingRef.current = true;
     void (async () => {
       try {
-        await stopSegment();
+        let drainError: unknown
+        try {
+          await stopSegment();
+        } catch (error) {
+          drainError = error
+        }
         const latestMeeting = props.getState().snapshot?.meetings.find(
           (item) => item.id === meeting.id,
         );
@@ -1162,7 +1163,13 @@ export function FlowboardMeetingDock(
           expectedVersion: latestMeeting.version,
           payload: { id: meeting.id, status: "finalizing" },
         });
-        props.setMeetingRuntime(sessionId, { stopping: false, recording: false });
+        props.setMeetingRuntime(sessionId, {
+          stopping: false,
+          recording: false,
+          error: drainError === undefined
+            ? null
+            : `会议已停止，但最后一段转写失败：${drainError instanceof Error ? drainError.message : String(drainError)}`,
+        });
       } catch (error) {
         props.setMeetingRuntime(sessionId, {
           stopping: false,
@@ -1208,9 +1215,10 @@ export function FlowboardMeetingDock(
           className={css.endMeetingButton!}
           icon={<StopOutlined />}
           disabled={runtime.stopping}
+          loading={runtime.stopping}
           onClick={() => props.setMeetingRuntime(sessionId, { stopping: true, error: null })}
         >
-          结束会议
+          {runtime.stopping ? "正在结束" : "结束会议"}
         </Button>
       )}
     </div>

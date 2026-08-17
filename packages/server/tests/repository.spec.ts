@@ -128,6 +128,23 @@ describe('SqliteFlowboardRepository', () => {
     expect(repository.snapshot(actor, {}).tasks).toHaveLength(0)
   })
 
+  it('批次用户意图直接可见、幂等且不能引用尚未产生的转录', () => {
+    const actor = repository.authenticate('test-token')
+    const meeting = repository.execute(actor, { idempotencyKey: 'record-meeting-create', type: 'meeting.create', payload: { teamId: 'team-local', projectIds: ['project-local'], title: '批次分析', settings: { automation: 'execute' } } })
+    repository.execute(actor, { idempotencyKey: 'record-meeting-live', type: 'meeting.update', expectedVersion: 1, payload: { id: meeting.entityId, status: 'live' } })
+    repository.execute(actor, { idempotencyKey: 'record-transcript-1', type: 'meeting.transcript.append', expectedVersion: 2, payload: { id: meeting.entityId, text: '创建发布项目' } })
+    const request = { idempotencyKey: 'record-intent-1', type: 'meeting.intent.record' as const, payload: { meetingId: meeting.entityId, intentKey: 'batch-1-1-0', title: '创建发布项目', evidenceFromSequence: 1, evidenceToSequence: 1 } }
+    const recorded = repository.execute(actor, request)
+    expect(repository.execute(actor, request)).toMatchObject({ entityId: recorded.entityId, replayed: true })
+    const duplicate = repository.execute(actor, { ...request, idempotencyKey: 'record-intent-duplicate', payload: { ...request.payload, intentKey: 'another-key' } })
+    expect(duplicate).toMatchObject({ entityId: recorded.entityId, replayed: true })
+    expect(repository.snapshot(actor, { meetingId: meeting.entityId }).meetingIntents).toMatchObject([
+      { id: recorded.entityId, status: 'applied', kind: 'note', payload: { title: '创建发布项目', origin: 'user' } },
+    ])
+    expect(() => repository.execute(actor, { idempotencyKey: 'record-intent-future', type: 'meeting.intent.record', payload: { meetingId: meeting.entityId, intentKey: 'batch-future', title: '未来意图', evidenceFromSequence: 2, evidenceToSequence: 2 } }))
+      .toThrowError(expect.objectContaining({ code: 'CONFLICT' }))
+  })
+
   it('finalize 会等待分析水位和未决意图收敛，并关闭 Session 绑定', () => {
     const actor = repository.authenticate('test-token')
     const meeting = repository.execute(actor, { idempotencyKey: 'finalize-gate-create', type: 'meeting.create', payload: { teamId: 'team-local', projectIds: ['project-local'], title: '收敛检查', settings: { automation: 'suggest' } } })

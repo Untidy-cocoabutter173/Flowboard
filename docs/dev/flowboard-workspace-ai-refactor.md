@@ -298,8 +298,16 @@ SQLite 是当前本地和小团队部署的事实源；本轮不虚构 PostgreSQ
 
 - 首页主操作是一键开始会议，不要求填写标题、项目或 AI 模式；系统自动使用第一个可写项目，完全没有项目时自动创建“未归档会议”临时项目，标题使用当前时间，并默认启用安全操作自动执行。
 - 左侧数量只使用中性文字，不使用红色 Badge；数量用于导航信息密度，不承担告警语义。
-- 会议内容区以总结为主：左侧展示 Markdown 总结、决议和风险，右侧显示最近转录、Supervisor 处理状态与醒目的结束会议按钮，并允许展开全部或收起；下方分别展示用户意图、AI 回复与提问、会议资料和 AI 操作。
-- AI 问题复用会议意图账本，以 `payload.origin=assistant` 和 `payload.question` 区分；AI 主动回复使用 `meeting_ai_actions(kind=note)`，不新增数据库表。用户回答后修订或终结同一问题的 `intent_key`。
+- 会议内容区以总结为主：左侧展示 Markdown 总结、决议和风险，右侧显示最近转录、Supervisor 处理状态与醒目的结束会议按钮，并允许展开全部或收起；下方分别展示用户意图、AI 提问、会议资料和 AI 操作。
+- AI 问题复用会议意图账本，以 `payload.origin=assistant` 和 `payload.question` 区分。普通 AI 回答、解释和建议直接输出到 DSH 对话回复区，不复制到会议面板；`meeting_ai_actions(kind=note)` 只兼容必须长期审计的主动提醒。用户回答后修订或终结同一问题的 `intent_key`。
 - AI 水位展示固定为三态：最新转录高于 `deliveredSequence` 时为“待投递”，投递高于 `analyzedSequence` 时为“AI 正在分析”，两者追平时为“AI 已追平”。会议详情的第二次范围快照必须合并会议实体、绑定、意图和资料关联，禁止用较新的 cursor 搭配旧水位造成漏刷新。
 - 项目、任务和资料等安全可逆创建遵循“先行动”原则。非关键字段缺失时创建带临时名称的实体，后续通过乐观锁修订；权限、无可写范围、删除和不可逆操作仍必须停下确认。
 - Markdown 文档使用独立内容路由和整页编辑器。属性弹窗只维护标题、类型、链接和项目关联，不再承载正文。
+
+## 十二、批次 Supervisor 与可靠结束
+
+- Coordinator 不再每条转录唤醒一次 Agent。连续积累 3 条立即投递，低频发言最多等待 5 秒，会议进入 `finalizing` 时立即冲刷剩余批次；一次通知覆盖 `analyzed + 1 ... delivered` 的完整范围。
+- `flowboard_ack_meeting` 是批次完成协议，强制提交 `analysis_summary` 与 `user_intents[]`。工具先把尚未由正式意图覆盖的用户诉求写成 `meeting.intent.record`，再一次推进 `analyzedSequence`；纯噪声才允许空意图。
+- `meeting.intent.record` 生成 `origin=user`、`status=applied` 的轻量可见记录，不触发第二次业务创建，也不阻塞会议结束；同一稳定键或相同证据范围与标题保持幂等。
+- 会议中的项目创建和修订必须携带 `meeting_id`，与任务、资料一致自动追加 AI 操作审计。缺少项目名称时仍先创建“未命名项目”，后续修订。
+- 点击结束会议后立即进入客户端 `stopping` 状态，停止接收新音频并禁用详情页和 Dock 的两个结束入口；最后一个片段及在途转写排空后才把会议推进到 `finalizing`。末段转写失败会明确提示，但不再让会议卡在无法结束的录音状态。

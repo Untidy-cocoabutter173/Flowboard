@@ -52,5 +52,13 @@ describe('Flowboard contracts', () => {
       idempotencyKey: 'meeting-intent-commit', type: 'meeting.intent.commit',
       payload: { id: 'intent-1', revision: 2, basisSequence: 2 },
     }).type).toBe('meeting.intent.commit')
+    expect(commandRequestSchema.parse({
+      idempotencyKey: 'meeting-intent-record', type: 'meeting.intent.record',
+      payload: { meetingId: 'meeting-1', intentKey: 'batch-1-2-0', title: '创建发布项目', evidenceFromSequence: 1, evidenceToSequence: 2 },
+    }).type).toBe('meeting.intent.record')
+    expect(commandRequestSchema.parse({
+      idempotencyKey: 'meeting-project-action', type: 'meeting.action.append',
+      payload: { id: 'meeting-1', kind: 'project', summary: '创建项目：发布平台' },
+    }).payload.kind).toBe('project')
   })
 })

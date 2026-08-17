@@ -51,6 +51,7 @@ export class MeetingCoordinator {
   private readonly pendingMessages = new Map<string, string>()
   private readonly attachedAgents = new Map<string, () => void>()
   private readonly finalizationNotified = new Set<string>()
+  private readonly pendingSince = new Map<string, number>()
   private running: Promise<void> | null = null
 
   constructor(
@@ -97,7 +98,7 @@ export class MeetingCoordinator {
           dispose(); this.attachedAgents.delete(sessionId); this.snapshots.delete(sessionId)
         }
         await Promise.all(active.map(binding => this.synchronize(binding)))
-        await this.client.changes({ cursor, waitMs: 30_000 }, this.abort.signal)
+        await this.client.changes({ cursor, waitMs: 1_000 }, this.abort.signal)
       } catch (error) {
         if (this.abort.signal.aborted) return
         this.ctx.logger.warn(`Flowboard MeetingCoordinator: ${error instanceof Error ? error.message : String(error)}`)
@@ -116,13 +117,21 @@ export class MeetingCoordinator {
     if (meeting === undefined) return
     const latest = snapshot.utterances.at(-1)?.sequence ?? 0
     if (latest > binding.deliveredSequence) {
+      const pendingSince = this.pendingSince.get(binding.meetingId) ?? Date.now()
+      this.pendingSince.set(binding.meetingId, pendingSince)
+      const pendingCount = latest - binding.deliveredSequence
+      const shouldDeliver = meeting.status === 'finalizing' || pendingCount >= 3 || Date.now() - pendingSince >= 5_000
+      if (!shouldDeliver) return
       await this.client.command({
         idempotencyKey: `coordinator:deliver:${binding.meetingId}:${latest}`,
         type: 'meeting.agent.progress', payload: { id: binding.meetingId, deliveredSequence: latest },
       }, this.abort.signal)
       const current = snapshot.meetingAgentBindings.find(item => item.meetingId === binding.meetingId)
       if (current !== undefined) current.deliveredSequence = latest
+      this.pendingSince.delete(binding.meetingId)
       this.notify(agent, binding.meetingId, this.transcriptNotice(snapshot, binding.deliveredSequence))
+    } else {
+      this.pendingSince.delete(binding.meetingId)
     }
     if (meeting.status === 'finalizing' && !this.finalizationNotified.has(meeting.id)) {
       this.finalizationNotified.add(meeting.id)
@@ -142,7 +151,7 @@ export class MeetingCoordinator {
       this.snapshots.set(stopping.id, snapshot)
       const binding = snapshot.meetingAgentBindings.find(item => item.sessionId === stopping.id && item.state === 'active')
       if (binding === undefined || binding.deliveredSequence <= binding.analyzedSequence) return
-      stopping.steer(message(`仍有转录未确认：已投递序号 ${binding.deliveredSequence}，已分析序号 ${binding.analyzedSequence}。继续检查完整会议上下文，更新或废弃旧意图，然后调用 flowboard_ack_meeting。`))
+      stopping.steer(message(`仍有一批转录未确认：已投递序号 ${binding.deliveredSequence}，已分析序号 ${binding.analyzedSequence}。一次检查 ${binding.analyzedSequence + 1}-${binding.deliveredSequence} 的完整批次，处理所有意图和操作后再调用 flowboard_ack_meeting。`))
     })
     this.attachedAgents.set(agent.id, dispose)
   }
@@ -164,7 +173,7 @@ export class MeetingCoordinator {
     const fresh = snapshot.utterances.filter(item => item.sequence > after)
     const last = fresh.at(-1)?.sequence ?? after
     const lines = fresh.map(item => `[${item.sequence}] ${item.text}`).join('\n')
-    return `会议「${meeting?.title ?? '未命名会议'}」有新转录（${after + 1}-${last}）：\n${lines}\n请结合完整会议上下文识别新增、纠正或撤销的意图。不要仅按最后一句执行；先更新意图账本，必要时派发 continuable Subagent，最后调用 flowboard_ack_meeting 确认分析水位。`
+    return `会议「${meeting?.title ?? '未命名会议'}」有一批新转录（${after + 1}-${last}）：\n${lines}\n一次处理整个批次并结合完整会议上下文：识别用户意图，执行明确操作，记录需要追问的问题。用户直接询问 AI 时，在 DSH 正常回复区回答。最后调用 flowboard_ack_meeting，并一次确认到序号 ${last}，不要逐条 ack。`
   }
 
   private renderContext(snapshot: FlowboardSnapshot): string {
@@ -183,7 +192,8 @@ export class MeetingCoordinator {
       `可选人员：${people || '无'}`,
       '规则：始终基于完整转录判断；更正覆盖旧意图；任务、资料、决议、风险或备注先 upsert intent，再按自动化级别审批，最后用最新 sequence commit。record 不写业务实体，suggest 必须 approved，execute 自动处理明确且可逆的操作。复杂整理可使用 continuable Subagent，Supervisor 负责最终校验和提交。',
       '项目、会议等容器级创建不是 task 意图：用户要求创建项目时直接调用 flowboard_create_project，绝不能创建标题为“新建项目”的任务。缺少名称时先创建“未命名项目”，再根据后续转录调用 flowboard_update_project。',
-      '需要向会议参与者提出问题时调用 flowboard_raise_meeting_question；需要主动回复、提醒或给出建议时调用 flowboard_reply_in_meeting。不要只在聊天中输出而不写入会议。',
+      '需要向会议参与者提出待追踪的问题时调用 flowboard_raise_meeting_question。普通回答、解释和建议直接输出到 DSH 对话回复区；只有必须长期审计的主动提醒才使用 flowboard_reply_in_meeting。',
+      '批次规则：每次处理 analyzed+1 到 delivered 的整个区间，不逐条追水位。显式诉求写入 user_intents；明确操作先执行并携带 meeting_id；用户直接向 AI 提问时在 DSH 正常回复区给出答案。flowboard_ack_meeting 必须是本批最后一个工具调用，并填写真实分析摘要和用户意图；纯噪声才允许空意图。',
       '即时行动：安全可逆的创建操作不要等待非关键字段；使用临时标题或空值先创建，之后基于最新 version 修正。确有歧义需要用户回答时调用 flowboard_raise_meeting_question，建立 origin=assistant 的澄清意图；后续回答必须修订或终结同一 intent_key。',
       '当前意图：', intents,
       '完整转录：', transcript,

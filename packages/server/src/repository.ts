@@ -317,6 +317,7 @@ export class SqliteFlowboardRepository {
       case 'meeting.agent.bind': return this.bindMeetingAgent(actor, request)
       case 'meeting.agent.progress': return this.updateMeetingAgentProgress(actor, request)
       case 'meeting.intent.upsert': return this.upsertMeetingIntent(actor, request)
+      case 'meeting.intent.record': return this.recordMeetingIntent(actor, request)
       case 'meeting.intent.status': return this.updateMeetingIntentStatus(actor, request)
       case 'meeting.intent.commit': return this.commitMeetingIntent(actor, request)
       case 'meeting.finalize': return this.finalizeMeeting(actor, request)
@@ -679,6 +680,30 @@ export class SqliteFlowboardRepository {
       now(), intent.id,
     )
     return this.record(actor, 'meeting_intent', String(intent.id), request.type, Number(intent.revision), this.entity('meeting_intents', String(intent.id)))
+  }
+
+  private recordMeetingIntent(actor: ActorView, request: Extract<CommandRequest, { type: 'meeting.intent.record' }>): CommandResult {
+    const meeting = this.requireMeeting(actor, request.payload.meetingId, true).meeting
+    if (meeting.status !== 'live' && meeting.status !== 'finalizing') throw conflict('Meeting is not accepting AI intents', { status: String(meeting.status) })
+    const latest = this.latestUtteranceSequence(String(meeting.id))
+    if (request.payload.evidenceFromSequence > request.payload.evidenceToSequence || request.payload.evidenceToSequence > latest) {
+      throw conflict('Intent evidence exceeds available transcript', { latestSequence: latest })
+    }
+    const existing = this.db.prepare('SELECT * FROM meeting_intents WHERE meeting_id=? AND intent_key=?').get(meeting.id, request.payload.intentKey) as Row | undefined
+    if (existing !== undefined) {
+      return { cursor: this.cursor(actor.tenantId), entityType: 'meeting_intent', entityId: String(existing.id), version: Number(existing.revision), replayed: true }
+    }
+    const duplicate = this.db.prepare(`SELECT * FROM meeting_intents
+      WHERE meeting_id=? AND evidence_from_sequence=? AND evidence_to_sequence=? AND json_extract(payload_json,'$.title')=? LIMIT 1`)
+      .get(meeting.id, request.payload.evidenceFromSequence, request.payload.evidenceToSequence, request.payload.title) as Row | undefined
+    if (duplicate !== undefined) {
+      return { cursor: this.cursor(actor.tenantId), entityType: 'meeting_intent', entityId: String(duplicate.id), version: Number(duplicate.revision), replayed: true }
+    }
+    const id = randomUUID(); const stamp = now()
+    this.db.prepare(`INSERT INTO meeting_intents(id,meeting_id,intent_key,kind,status,payload_json,evidence_from_sequence,evidence_to_sequence,revision,entity_type,entity_id,created_at,updated_at)
+      VALUES(?,?,?,'note','applied',?,?,?,?, 'meeting',?,?,?)`)
+      .run(id, meeting.id, request.payload.intentKey, JSON.stringify({ title: request.payload.title, origin: 'user' }), request.payload.evidenceFromSequence, request.payload.evidenceToSequence, 1, meeting.id, stamp, stamp)
+    return this.record(actor, 'meeting_intent', id, request.type, 1, this.entity('meeting_intents', id))
   }
 
   private commitMeetingIntent(actor: ActorView, request: Extract<CommandRequest, { type: 'meeting.intent.commit' }>): CommandResult {

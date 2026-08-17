@@ -21,14 +21,14 @@ for (const file of files) {
     for (const marker of ['Jira 面板', '任务列表', '项目成员', 'field.create', 'project.member.remove', 'data-flowboard-document', '立即开始']) {
       if (!source.includes(marker)) throw new Error(`${file}: missing dynamic workspace capability ${marker}`)
     }
-    for (const marker of ['meeting.agent.bind', 'meetingAgentBindings', 'meetingIntents']) {
+    for (const marker of ['meeting.agent.bind', 'meetingAgentBindings', 'meetingIntents', 'stopping', '正在结束']) {
       if (!source.includes(marker)) throw new Error(`${file}: missing dynamic meeting Supervisor capability ${marker}`)
     }
     if (source.includes('inputActions.submit') || source.includes('inputActions.setDraft')) {
       throw new Error(`${file}: meeting transcription must not drive the Composer`)
     }
   } else {
-    for (const marker of ['flowboard_create_project', 'flowboard_raise_meeting_question', 'flowboard_reply_in_meeting', 'flowboard_upsert_meeting_intent', 'flowboard_commit_meeting_intent', 'agent/turn-stopping']) {
+    for (const marker of ['flowboard_create_project', 'flowboard_raise_meeting_question', 'flowboard_reply_in_meeting', 'flowboard_upsert_meeting_intent', 'flowboard_commit_meeting_intent', 'meeting.intent.record', 'analysis_summary', 'user_intents', 'agent/turn-stopping']) {
       if (!source.includes(marker)) throw new Error(`${file}: missing dynamic meeting Supervisor capability ${marker}`)
     }
   }

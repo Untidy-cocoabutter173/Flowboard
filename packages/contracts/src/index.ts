@@ -173,7 +173,7 @@ export interface MeetingAiActionView {
   id: string
   meetingId: string
   callId: string | null
-  kind: 'task' | 'document' | 'decision' | 'note' | 'finalize'
+  kind: 'project' | 'task' | 'document' | 'decision' | 'note' | 'finalize'
   summary: string
   entityType: string | null
   entityId: string | null
@@ -355,6 +355,7 @@ export type CommandRequest =
   | CommandEnvelope<'meeting.agent.bind', { id: string; sessionId: string }>
   | CommandEnvelope<'meeting.agent.progress', { id: string; deliveredSequence?: number; analyzedSequence?: number }>
   | CommandEnvelope<'meeting.intent.upsert', { meetingId: string; intentKey: string; kind: MeetingIntentKind; payload: MeetingIntentPayload; evidenceFromSequence: number; evidenceToSequence: number }>
+  | CommandEnvelope<'meeting.intent.record', { meetingId: string; intentKey: string; title: string; evidenceFromSequence: number; evidenceToSequence: number }>
   | CommandEnvelope<'meeting.intent.status', { id: string; revision: number; status: Extract<MeetingIntentStatus, 'clarifying' | 'approved' | 'executing' | 'superseded' | 'rejected' | 'failed'>; subagentId?: string; error?: string }>
   | CommandEnvelope<'meeting.intent.commit', { id: string; revision: number; basisSequence: number }>
   | CommandEnvelope<'meeting.finalize', { id: string; summary: string }>
@@ -446,10 +447,11 @@ export const commandRequestSchema: z.ZodType<CommandRequest> = z.discriminatedUn
   envelope('task.update', z.object({ id, title: shortText.optional(), summary: text.optional(), detail: text.optional(), statusId: id.optional(), categoryId: id.nullable().optional(), assigneeId: id.nullable().optional(), priority: priority.optional(), progress: z.number().min(0).max(1).optional(), dueAt: dateTime.nullable().optional(), customData: customData.optional(), meetingIds: idList.optional(), libraryItemIds: idList.optional() })), envelope('task.delete', z.object({ id })),
   envelope('meeting.create', z.object({ teamId: id, projectIds: idList.min(1), title: shortText, settings: partialSettings.optional() })), envelope('meeting.update', z.object({ id, title: shortText.optional(), status: meetingStatus.optional(), projectIds: idList.min(1).optional(), settings: partialSettings.optional(), transcript: text.optional(), summary: text.optional(), decisions: z.array(shortText).max(100).optional(), risks: z.array(shortText).max(100).optional() })), envelope('meeting.delete', z.object({ id })),
   envelope('meeting.transcript.append', z.object({ id, text: z.string().trim().min(1).max(200_000), speakerId: id.optional(), clientSegmentId: id.optional(), startedAt: dateTime.optional(), endedAt: dateTime.optional() })),
-  envelope('meeting.action.append', z.object({ id, callId: id.optional(), kind: z.enum(['task', 'document', 'decision', 'note', 'finalize']), summary: shortText, entityType: shortText.optional(), entityId: id.optional(), ok: z.boolean().optional() })),
+  envelope('meeting.action.append', z.object({ id, callId: id.optional(), kind: z.enum(['project', 'task', 'document', 'decision', 'note', 'finalize']), summary: shortText, entityType: shortText.optional(), entityId: id.optional(), ok: z.boolean().optional() })),
   envelope('meeting.agent.bind', z.object({ id, sessionId: id })),
   envelope('meeting.agent.progress', z.object({ id, deliveredSequence: z.number().int().nonnegative().optional(), analyzedSequence: z.number().int().nonnegative().optional() })),
   envelope('meeting.intent.upsert', z.object({ meetingId: id, intentKey: id, kind: meetingIntentKind, payload: meetingIntentPayload, evidenceFromSequence: z.number().int().positive(), evidenceToSequence: z.number().int().positive() })),
+  envelope('meeting.intent.record', z.object({ meetingId: id, intentKey: id, title: shortText, evidenceFromSequence: z.number().int().positive(), evidenceToSequence: z.number().int().positive() })),
   envelope('meeting.intent.status', z.object({ id, revision: z.number().int().positive(), status: meetingIntentStatus, subagentId: id.optional(), error: text.optional() })),
   envelope('meeting.intent.commit', z.object({ id, revision: z.number().int().positive(), basisSequence: z.number().int().nonnegative() })),
   envelope('meeting.finalize', z.object({ id, summary: text })),

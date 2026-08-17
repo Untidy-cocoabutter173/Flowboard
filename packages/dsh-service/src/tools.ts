@@ -60,22 +60,25 @@ export function registerFlowboardTools(ctx: Context, client: FlowboardHttpClient
     description: '立即创建项目。名称、代号或团队缺失时使用可修订的临时值，不因非关键字段缺失而等待用户。',
     parameters: {
       team_id: { type: 'string' }, key: { type: 'string' }, name: { type: 'string' },
-      description: { type: 'string' }, color: { type: 'string' },
+      description: { type: 'string' }, color: { type: 'string' }, meeting_id: { type: 'string' },
     },
     output: jsonOutput,
     execute: async (args, exec) => {
       const { team } = await writableScope(client, exec.signal, undefined, args.team_id)
       if (team === undefined) throw new Error('没有可写团队，无法创建项目')
-      return command(client, {
+      const name = args.name?.trim() || '未命名项目'
+      const result = await command(client, {
         idempotencyKey: key(exec.callId, 'project.create'), type: 'project.create',
         payload: {
           teamId: team.id,
           key: args.key ?? provisionalProjectKey(exec.callId),
-          name: args.name?.trim() || '未命名项目',
+          name,
           ...(args.description === undefined ? {} : { description: args.description }),
           ...(args.color === undefined ? {} : { color: args.color }),
         },
       }, exec.signal)
+      if (args.meeting_id !== undefined) await recordAction(client, exec, args.meeting_id, 'project', `创建项目：${name}`, result.entityType, result.entityId)
+      return result
     },
   }))
 
@@ -84,19 +87,23 @@ export function registerFlowboardTools(ctx: Context, client: FlowboardHttpClient
     description: '使用乐观锁修订项目临时名称、代号、说明或颜色。',
     parameters: {
       id: { type: 'string', required: true }, expected_version: { type: 'integer', required: true },
-      key: { type: 'string' }, name: { type: 'string' }, description: { type: 'string' }, color: { type: 'string' },
+      key: { type: 'string' }, name: { type: 'string' }, description: { type: 'string' }, color: { type: 'string' }, meeting_id: { type: 'string' },
     },
     output: jsonOutput,
-    execute: async (args, exec) => command(client, {
-      idempotencyKey: key(exec.callId, 'project.update'), type: 'project.update', expectedVersion: args.expected_version,
-      payload: {
-        id: args.id,
-        ...(args.key === undefined ? {} : { key: args.key }),
-        ...(args.name === undefined ? {} : { name: args.name }),
-        ...(args.description === undefined ? {} : { description: args.description }),
-        ...(args.color === undefined ? {} : { color: args.color }),
-      },
-    }, exec.signal),
+    execute: async (args, exec) => {
+      const result = await command(client, {
+        idempotencyKey: key(exec.callId, 'project.update'), type: 'project.update', expectedVersion: args.expected_version,
+        payload: {
+          id: args.id,
+          ...(args.key === undefined ? {} : { key: args.key }),
+          ...(args.name === undefined ? {} : { name: args.name }),
+          ...(args.description === undefined ? {} : { description: args.description }),
+          ...(args.color === undefined ? {} : { color: args.color }),
+        },
+      }, exec.signal)
+      if (args.meeting_id !== undefined) await recordAction(client, exec, args.meeting_id, 'project', `修订项目：${args.name?.trim() || args.id}`, result.entityType, result.entityId)
+      return result
+    },
   }))
 
   ctx.tools.register(defineTool({
@@ -145,17 +152,47 @@ export function registerFlowboardTools(ctx: Context, client: FlowboardHttpClient
 
   ctx.tools.register(defineTool({
     name: 'flowboard_ack_meeting',
-    description: '确认 Supervisor 已完整分析到指定转录序号。只有在相关意图已新建、修订、废弃或进入澄清后调用。',
+    description: '一次确认 Supervisor 已完整分析整个转录批次。必须填写本批分析摘要和全部用户意图，并作为本批最后一个工具调用。',
     parameters: {
       meeting_id: { type: 'string', required: true },
       analyzed_sequence: { type: 'integer', required: true },
+      analysis_summary: { type: 'string', required: true },
+      user_intents: { type: 'array', items: { type: 'string' }, required: true },
     },
     output: jsonOutput,
-    execute: async (args, exec) => command(client, {
-      idempotencyKey: key(exec.callId, 'meeting.agent.progress'),
-      type: 'meeting.agent.progress',
-      payload: { id: args.meeting_id, analyzedSequence: args.analyzed_sequence },
-    }, exec.signal),
+    execute: async (args, exec) => {
+      const snapshot = await client.snapshot({ meetingId: args.meeting_id }, exec.signal)
+      const binding = snapshot.meetingAgentBindings.find(item => item.meetingId === args.meeting_id && item.state === 'active')
+      if (binding === undefined) throw new Error('会议没有活跃的 Supervisor 绑定')
+      if (args.analyzed_sequence > binding.deliveredSequence) throw new Error(`分析序号 ${args.analyzed_sequence} 超过已投递序号 ${binding.deliveredSequence}`)
+      if (args.analyzed_sequence < binding.analyzedSequence) throw new Error(`分析序号不能从 ${binding.analyzedSequence} 回退到 ${args.analyzed_sequence}`)
+      const fromSequence = binding.analyzedSequence + 1
+      const titles = [...new Set(args.user_intents.map(item => item.trim()).filter(Boolean))]
+      for (const [index, title] of titles.entries()) {
+        const represented = snapshot.meetingIntents.some(item =>
+          item.payload.origin !== 'assistant' && item.payload.title === title &&
+          item.evidenceFromSequence <= args.analyzed_sequence && item.evidenceToSequence >= fromSequence,
+        )
+        if (represented || fromSequence > args.analyzed_sequence) continue
+        await command(client, {
+          idempotencyKey: key(exec.callId, `meeting.intent.record:${fromSequence}-${args.analyzed_sequence}:${index}`),
+          type: 'meeting.intent.record',
+          payload: {
+            meetingId: args.meeting_id,
+            intentKey: `batch-${fromSequence}-${args.analyzed_sequence}-${index}`,
+            title,
+            evidenceFromSequence: fromSequence,
+            evidenceToSequence: args.analyzed_sequence,
+          },
+        }, exec.signal)
+      }
+      const result = await command(client, {
+        idempotencyKey: key(exec.callId, 'meeting.agent.progress'),
+        type: 'meeting.agent.progress',
+        payload: { id: args.meeting_id, analyzedSequence: args.analyzed_sequence },
+      }, exec.signal)
+      return { ...result, analysisSummary: args.analysis_summary, userIntents: titles }
+    },
   }))
 
   ctx.tools.register(defineTool({
@@ -223,7 +260,7 @@ export function registerFlowboardTools(ctx: Context, client: FlowboardHttpClient
 
   ctx.tools.register(defineTool({
     name: 'flowboard_reply_in_meeting',
-    description: 'AI 作为会议参与者给出简洁回复、提醒或建议，并持久化到会议的“AI 回复与提问”列表。不要用它代替应立即执行的业务工具。',
+    description: '仅持久化必须长期留在会议审计中的 AI 提醒。普通回答必须直接输出到 DSH 对话回复区，不要调用此工具。',
     parameters: {
       meeting_id: { type: 'string', required: true },
       reply: { type: 'string', required: true },
