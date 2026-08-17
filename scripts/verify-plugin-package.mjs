@@ -39,6 +39,7 @@ try {
 
   const required = [
     'README.md',
+    'README.zh-CN.md',
     'LICENSE',
     'cordis.patch.yml',
     'lib/index.js',

@@ -21,6 +21,7 @@ if (plugin.exports?.['./client'] !== './lib/client.js') throw new Error('The pub
 if (plugin.exports?.['./typert'] !== './lib/typert.host.js') throw new Error('The public package must export ./typert')
 if (!plugin.files?.includes('vendor/whisper/**/*')) throw new Error('The public package must ship bundled Whisper assets')
 if (!plugin.files?.includes('LICENSE')) throw new Error('The public package must ship its MIT license')
+if (!plugin.files?.includes('README.zh-CN.md')) throw new Error('The public package must ship its optional Chinese README')
 if (plugin.publishConfig?.access !== 'public') throw new Error('The public package must opt into public scoped publishing')
 if (root.private !== true) throw new Error('The workspace root must never be published')
 if (Object.keys(plugin.dependencies ?? {}).some(name => name.startsWith('@flowboard/'))) {
