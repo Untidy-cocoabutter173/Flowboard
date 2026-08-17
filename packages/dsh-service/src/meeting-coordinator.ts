@@ -27,7 +27,7 @@ interface AgentEventContext {
   on(name: 'agent/turn-stopping', listener: (event: { agent: AgentPort; signal: AbortSignal }) => void | Promise<void>): () => void
 }
 
-const PLUGIN = '@flowboard/dsh-service'
+const PLUGIN = '@flowboard/dsh'
 
 function message(text: string): AgentMessage {
   return Object.freeze({

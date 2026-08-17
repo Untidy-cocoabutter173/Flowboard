@@ -1,6 +1,7 @@
 {
   "name": "@flowboard/server",
   "version": "0.1.0",
+  "private": true,
   "author": "构序科技",
   "type": "module",
   "main": "lib/index.js",

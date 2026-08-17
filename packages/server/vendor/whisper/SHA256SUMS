@@ -1,0 +1,10 @@
+72bec2ff47eae50a7c2e3fe61af15a8f23eac2df21347c12fe91af48bf3b37fa  linux-x64/bin/whisper-cli
+0febed5a8665fea0df415097dd3ea5349d11915fbdfd8df92ebd2fa4d2a12e1f  linux-x64/lib/libggml-base.so.0
+0febed5a8665fea0df415097dd3ea5349d11915fbdfd8df92ebd2fa4d2a12e1f  linux-x64/lib/libggml-base.so.0.20.0
+5ad40d2ad34089fd04c5f101b018f6ab53bc7ac38c63e1a559c0bdd022382f65  linux-x64/lib/libggml-cpu.so.0
+5ad40d2ad34089fd04c5f101b018f6ab53bc7ac38c63e1a559c0bdd022382f65  linux-x64/lib/libggml-cpu.so.0.20.0
+47baa72e183871cccb1647eb309fda9380b411a2a7a0eada1e423e49e9e16b85  linux-x64/lib/libggml.so.0
+47baa72e183871cccb1647eb309fda9380b411a2a7a0eada1e423e49e9e16b85  linux-x64/lib/libggml.so.0.20.0
+fc0731ed71d6e6d053419a6bbcbfdb53036fb4f3958df150183d14d978d17cc4  linux-x64/lib/libwhisper.so.1
+fc0731ed71d6e6d053419a6bbcbfdb53036fb4f3958df150183d14d978d17cc4  linux-x64/lib/libwhisper.so.1.9.2
+1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b  linux-x64/models/ggml-small.bin

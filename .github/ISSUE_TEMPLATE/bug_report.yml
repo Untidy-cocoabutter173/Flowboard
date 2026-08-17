@@ -1,0 +1,49 @@
+name: Bug 报告
+description: 报告可复现的 Flowboard 插件问题
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: 安全漏洞请使用 Security 私密报告，不要在公开 Issue 中披露。
+  - type: input
+    id: version
+    attributes:
+      label: Flowboard 版本
+      placeholder: 例如 0.1.2-alpha.1
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: 环境
+      description: DSH、Node.js、操作系统和架构版本
+      placeholder: DSH 0.1.0-rc.6 / Node 24 / Ubuntu 24.04 x64
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 请提供最小、稳定的复现步骤，并移除令牌和业务数据。
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为与日志
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 我确认这不是安全漏洞，且日志中不包含 Token、会议内容或其他敏感数据。
+          required: true

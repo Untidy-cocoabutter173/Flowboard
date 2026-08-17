@@ -12,7 +12,7 @@ import {
   type TranscriptionRequest,
   type UploadTicketRequest,
 } from '@flowboard/contracts'
-import { startFlowboardRuntime } from '@flowboard/server'
+import { createFlowboardAccessToken, startFlowboardRuntime } from '@flowboard/server'
 import { FlowboardHttpClient, type HttpClientConfig } from './http-client.ts'
 import { MeetingCoordinator } from './meeting-coordinator.ts'
 import { registerFlowboardTools } from './tools.ts'
@@ -39,14 +39,17 @@ export class FlowboardService extends TypertRemoteService {
     const host = config.host ?? '127.0.0.1'
     const port = config.port ?? 8787
     const apiBase = config.apiBase ?? `http://${host}:${port}`
-    const token = config.token ?? 'flowboard-local'
-    if (apiBase.trim() === '' || token.length < 8) throw new Error('Flowboard apiBase and an access token of at least 8 characters are required')
+    const embedded = config.embedded ?? true
+    const token = config.token?.trim() || (embedded ? createFlowboardAccessToken() : '')
+    if (apiBase.trim() === '' || token.length < 16) {
+      throw new Error('Flowboard apiBase and an access token of at least 16 characters are required')
+    }
     this.client = new FlowboardHttpClient({
       apiBase,
       token,
       ...(config.requestTimeoutMs === undefined ? {} : { requestTimeoutMs: config.requestTimeoutMs }),
     })
-    if (config.embedded ?? true) {
+    if (embedded) {
       ctx.effect(async () => {
         const runtime = await startFlowboardRuntime({
           host,

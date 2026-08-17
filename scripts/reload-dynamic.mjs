@@ -5,7 +5,10 @@ import { resolve } from 'node:path'
 
 const root = resolve(import.meta.dirname, '..')
 const apiBase = process.env.FLOWBOARD_API_BASE || 'http://127.0.0.1:8787'
-const token = process.env.FLOWBOARD_TOKEN || 'flowboard-local-debug-token'
+const token = process.env.FLOWBOARD_TOKEN
+if (token === undefined || token.length < 16) {
+  throw new Error('FLOWBOARD_TOKEN must contain at least 16 characters for the dynamic fallback')
+}
 
 const read = (p) => readFile(resolve(root, p), 'utf8')
 

@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout including Whisper model
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify source, tests, build and package manifest
+        run: pnpm run check
+
+      - name: Install compatible DSH CLI
+        run: pnpm add --global @deepseek-ai/dsh@0.1.0-rc.6
+
+      - name: Pack the public plugin
+        run: pnpm run plugin:pack
+
+      - name: Audit the packed plugin
+        run: pnpm run plugin:package-check
+
+      - name: Verify real DSH install and boot lifecycle
+        run: pnpm run plugin:install-check

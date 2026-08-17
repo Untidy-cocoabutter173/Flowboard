@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process'
-import { lstat, mkdir, mkdtemp, readlink, rm, symlink, writeFile } from 'node:fs/promises'
-import { homedir, tmpdir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { glob, mkdir } from 'node:fs/promises'
+import { homedir } from 'node:os'
+import { dirname, resolve } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 
@@ -14,10 +14,12 @@ if (major < 22 || (major === 22 && minor < 19)) {
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const pnpm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
 const dsh = process.platform === 'win32' ? 'dsh.cmd' : 'dsh'
+const dshHome = resolve(process.env.FLOWBOARD_DEV_DSH_HOME ?? resolve(root, '.dsh-dev'))
+const environment = { ...process.env, DSH_HOME: dshHome }
 
 function run(command, args) {
   return new Promise((resolveRun, reject) => {
-    const child = spawn(command, args, { cwd: root, env: process.env, stdio: 'inherit' })
+    const child = spawn(command, args, { cwd: root, env: environment, stdio: 'inherit' })
     child.once('error', reject)
     child.once('exit', (code, signal) => {
       if (code === 0) resolveRun()
@@ -26,50 +28,24 @@ function run(command, args) {
   })
 }
 
-async function ensureWorkspaceLink(packageName, packagePath) {
-  const scopeDirectory = join(process.env.DSH_HOME ?? join(homedir(), '.dsh'), 'profiles', 'web', 'node_modules', '@flowboard')
-  const linkPath = join(scopeDirectory, packageName)
-  await mkdir(scopeDirectory, { recursive: true })
-  try {
-    const stat = await lstat(linkPath)
-    if (stat.isSymbolicLink() && resolve(scopeDirectory, await readlink(linkPath)) === packagePath) return
-    throw new Error(`${linkPath} already exists and does not point to ${packagePath}`)
-  } catch (error) {
-    if (error?.code !== 'ENOENT') throw error
-  }
-  await symlink(packagePath, linkPath, 'dir')
-}
+console.log('[Flowboard] building the same DSH bundle that is distributed to users...')
+await run(pnpm, ['run', 'check'])
+await run(pnpm, ['run', 'plugin:pack'])
 
-console.log('[Flowboard] validating sources and building the static plugin...')
-await run(pnpm, ['run', 'dynamic:check'])
-await run(pnpm, ['run', 'typecheck'])
-await run(pnpm, ['run', 'build'])
+const tarballs = []
+for await (const file of glob('artifacts/flowboard-dsh-*.tgz', { cwd: root })) tarballs.push(resolve(root, file))
+if (tarballs.length !== 1) throw new Error(`Expected one Flowboard plugin tarball, found ${tarballs.length}`)
 
-const apiPort = 8787
+await mkdir(dshHome, { recursive: true })
+console.log(`[Flowboard] installing ${tarballs[0]} into isolated DSH_HOME ${dshHome}`)
+await run(dsh, ['plugin', '--profile', 'web', 'add', '--force', tarballs[0]])
+
 const webPort = 3080
-await ensureWorkspaceLink('dsh-service', resolve(root, 'packages/dsh-service'))
-await ensureWorkspaceLink('dsh-client', resolve(root, 'packages/dsh-client'))
-const patchDirectory = await mkdtemp(resolve(tmpdir(), 'flowboard-dev-'))
-const patchPath = resolve(patchDirectory, 'cordis.patch.yml')
-await writeFile(patchPath, `- insert:
-    - id: flowboard-service
-      name: '@flowboard/dsh-service'
-      config:
-        embedded: true
-        apiBase: 'http://127.0.0.1:${apiPort}'
-        host: '127.0.0.1'
-        port: ${apiPort}
-        token: 'flowboard-local'
-        dataDirectory: ${JSON.stringify(resolve(root, 'data'))}
-    - id: flowboard-client
-      name: '@flowboard/dsh-client'
-`)
-
-console.log('[Flowboard] starting DSH with the local Flowboard workspace...')
-console.log(`[Flowboard] Web: http://127.0.0.1:${webPort} · API: http://127.0.0.1:${apiPort} · bundled AI transcription: ready`)
-const child = spawn(dsh, ['web', '--patch', patchPath, '--port', String(webPort)], {
+console.log('[Flowboard] starting the DSH web profile with the installed Flowboard bundle...')
+console.log(`[Flowboard] Web: http://127.0.0.1:${webPort} · bundled Whisper: ready`)
+const child = spawn(dsh, ['web', '--port', String(webPort)], {
   cwd: root,
-  env: process.env,
+  env: environment,
   stdio: 'inherit',
 })
 
@@ -86,6 +62,5 @@ const result = await new Promise((resolveExit, reject) => {
   child.once('error', reject)
   child.once('exit', (code, signal) => resolveExit({ code, signal }))
 })
-await rm(patchDirectory, { recursive: true, force: true })
 if (result.signal !== null && !stopping) throw new Error(`dsh stopped by ${result.signal}`)
 process.exitCode = result.code ?? (result.signal === 'SIGINT' ? 130 : 0)

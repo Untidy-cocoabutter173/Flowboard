@@ -2,7 +2,7 @@
 
 ## 背景
 
-旧原型由浏览器直接访问 HTTP、依赖单一 JSON 状态和固定频率全量轮询，身份、权限、错误和写入规则分散。此次重构把 Flowboard 建成独立 Git 插件项目，并统一页面、Agent 与服务端的数据路径。⚡
+旧原型由浏览器直接访问 HTTP、依赖单一 JSON 状态和固定频率全量轮询，身份、权限、错误和写入规则分散。此次重构把 Flowboard 建成由 DSH 托管的单包插件，并统一页面、Agent 与服务端的数据路径。⚡
 
 ## 目标
 
@@ -16,6 +16,7 @@
 
 | 模块 | 代码位置 | 当前职责 |
 | --- | --- | --- |
+| DSH 公开插件 | `packages/dsh` | 唯一公开 manifest、Cordis patch、聚合 Host/Client/Typert 和 Whisper 资产 🆕 |
 | 契约 | `packages/contracts/src/index.ts` | DTO、命令联合类型、Zod schema、上传限制 |
 | 数据库 | `packages/server/src/database.ts` | SQLite schema、迁移、默认租户与基础数据 |
 | 仓储 | `packages/server/src/repository.ts` | 授权、查询、事务命令、幂等、版本和审计 |
@@ -92,7 +93,7 @@ Typert rc.6 在独立 pnpm workspace 中无法稳定跨本地 contracts 包识�
 - [x] Host HTTP Client Bearer 与结构化错误测试
 - [x] Client 快照、命令刷新和断线退避测试
 - [x] Host/Client 类型检查和 bundle 构建
-- [x] Codex 插件 manifest 校验
-- [x] 零参数 `pnpm dev` 与本地 DSH workspace 启动
+- [x] 单一 DSH 插件 manifest 校验
+- [x] 零参数 `pnpm dev` 打包、真实安装并由 DSH profile 启动
 - [x] PCM WAV 录音和随包 Whisper 真实音频转写
 - [ ] PostgreSQL adapter（当前范围不包含）

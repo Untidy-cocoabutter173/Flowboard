@@ -44,10 +44,10 @@ function cssModulesPlugin() {
       for (const [local, value] of Object.entries(result.exports ?? {})) classes[local] = value.name
       return [
         `const text=${JSON.stringify(result.code.toString())};`,
-        'const selector=\'style[data-plugin-css="@flowboard/dsh-client"]\';',
+        'const selector=\'style[data-plugin-css="@flowboard/dsh"]\';',
         'if(typeof document!==\'undefined\'&&document.querySelector(selector)===null){',
-        'const style=document.createElement(\'style\');style.dataset.plugin=\'@flowboard/dsh-client\';',
-        'style.dataset.pluginCss=\'@flowboard/dsh-client\';style.textContent=text;document.head.appendChild(style);}',
+        'const style=document.createElement(\'style\');style.dataset.plugin=\'@flowboard/dsh\';',
+        'style.dataset.pluginCss=\'@flowboard/dsh\';style.textContent=text;document.head.appendChild(style);}',
         `export default ${JSON.stringify(classes)};`,
       ].join('\n')
     },
@@ -56,20 +56,9 @@ function cssModulesPlugin() {
 
 export default defineConfig([
   {
-    name: '@flowboard/dsh-client',
-    entry: ['packages/dsh-client/lib/types/index.js'],
-    outDir: 'packages/dsh-client/lib',
-    format: ['esm'],
-    platform: 'node',
-    target: 'es2024',
-    fixedExtension: false,
-    dts: false,
-    clean: false,
-  },
-  {
-    name: '@flowboard/dsh-client/client',
+    name: '@flowboard/dsh/client',
     entry: { client: 'packages/dsh-client/lib/types/client/index.js' },
-    outDir: 'packages/dsh-client/lib',
+    outDir: 'packages/dsh/lib',
     format: ['cjs'],
     platform: 'browser',
     dts: false,
@@ -87,7 +76,7 @@ export default defineConfig([
     plugins: [cssModulesPlugin()],
     outputOptions: {
       entryFileNames: 'client.js',
-      banner: 'window.__ModuleLoader__.load({ id: "@flowboard/dsh-client", factory: (require) => {',
+      banner: 'window.__ModuleLoader__.load({ id: "@flowboard/dsh", factory: (require) => {',
       footer: 'return module.exports; } });',
       intro: 'var module = { exports: {} }; var exports = module.exports;',
     },

@@ -11,3 +11,4 @@ for await (const entry of glob('packages/*/*.tsbuildinfo')) {
   await rm(entry, { force: true })
 }
 await rm('artifacts', { recursive: true, force: true })
+await rm('packages/dsh/vendor', { recursive: true, force: true })

@@ -1,0 +1,32 @@
+name: 功能建议
+description: 建议新的 DSH 插件能力或改进
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 要解决的问题
+      description: 请描述真实工作流、用户角色和当前阻碍。
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 建议方案
+      description: 说明期望交互、数据边界及与 DSH 的关系。
+    validations:
+      required: true
+  - type: dropdown
+    id: scope
+    attributes:
+      label: 主要范围
+      options:
+        - Web Client
+        - Agent 工具
+        - 会议与转录
+        - 数据与权限
+        - 插件安装与发布
+        - 其他
+    validations:
+      required: true

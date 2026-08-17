@@ -5,6 +5,9 @@ lib/
 lib-types/
 *.tsbuildinfo
 coverage/
+packages/dsh/vendor/
+artifacts/
+.dsh-dev/
 data/
 .env
 *.db

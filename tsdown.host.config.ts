@@ -25,5 +25,4 @@ export default defineConfig([
   ], [
     typertPlugin({ mode: 'package', faces: ['host'] }),
   ]),
-  nodePackage('@flowboard/dsh', 'packages/dsh', ['index'], ['@flowboard/dsh-client', '@flowboard/dsh-service']),
 ])

@@ -1,2 +1,9 @@
-/** Install-only package body; the bundle patch composes the runtime packages. */
-export function apply(): void {}
+/** The public DSH plugin entry; internal workspace modules are bundled at release time. */
+export {
+  FlowboardService,
+  FlowboardHttpClient,
+  FlowboardRemoteError,
+  MeetingCoordinator,
+  default,
+} from '@flowboard/dsh-service'
+export type { Config, HttpClientConfig } from '@flowboard/dsh-service'

@@ -66,7 +66,7 @@ detected -> clarifying -> approved -> executing -> applied
 
 `meeting.finalize` 是最终一致性闸门：仍有 `pending/processing` 转写、`analyzed_sequence` 落后或非终态意图时必须返回冲突，不能提前结束会议。
 
-浏览器 VAD 是音频链唯一的截流边界。静态 Client 把已经分好的 WAV 交给 DSH Host，由 Host 申请一次性票据并完成 PUT；Host 拿到 `jobId` 后立即返回，Browser 独立轮询。Whisper 每完成一段，Worker 就立即追加 utterance、推进 change cursor 并唤醒 Coordinator，不增加固定窗口、二次静音等待或会后批量写稿。随包 `ggml-small` 默认固定中文识别，并把同一会议最近的已确认 utterance 作为有界 prompt；上下文只影响单段识别质量，不改变提交时机和权威文字稿的逐段结构。
+浏览器 VAD 是音频链唯一的截流边界。Client 把已经分好的 WAV 交给 DSH Host，由 Host 申请一次性票据并完成 PUT；Host 拿到 `jobId` 后立即返回，Browser 独立轮询。Whisper 每完成一段，Worker 就立即追加 utterance、推进 change cursor 并唤醒 Coordinator，不增加固定窗口、二次静音等待或会后批量写稿。随包 `ggml-small` 默认固定中文识别，每段仅处理当前 WAV，不把历史识别结果作为 prompt；完整上下文由 Supervisor 从权威会议稿读取，避免错误词在长会议中循环强化。⚡
 
 ## 交互调整
 

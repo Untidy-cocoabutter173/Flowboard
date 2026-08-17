@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { buildServer } from './application.ts'
@@ -20,11 +21,17 @@ export interface FlowboardRuntime {
   close(): Promise<void>
 }
 
+export function createFlowboardAccessToken(): string {
+  return randomBytes(32).toString('base64url')
+}
+
 export async function startFlowboardRuntime(options: FlowboardRuntimeOptions = {}): Promise<FlowboardRuntime> {
   const host = options.host ?? '127.0.0.1'
   const port = options.port ?? 8787
-  const token = options.token ?? 'flowboard-local'
-  const dataDirectory = resolve(options.dataDirectory ?? join(homedir(), '.dsh', 'flowboard'))
+  const token = options.token?.trim() || createFlowboardAccessToken()
+  if (token.length < 16) throw new Error('Flowboard access tokens must contain at least 16 characters')
+  const dshHome = process.env.DSH_HOME ?? join(homedir(), '.dsh')
+  const dataDirectory = resolve(options.dataDirectory ?? join(dshHome, 'flowboard'))
   const apiBase = `http://${host}:${port}`
   const database = openDatabase({ path: join(dataDirectory, 'flowboard.db'), bootstrapToken: token })
   const repository = new SqliteFlowboardRepository(database, apiBase)

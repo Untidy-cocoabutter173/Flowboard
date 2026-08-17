@@ -241,18 +241,18 @@ AI 不可自动执行：删除实体、修改成员权限、修改团队结构�
 - 人员、会议和资料使用高密度表格/列表，不把页面区块包装成悬浮卡片。
 - 移动端菜单和项目列表横向滚动，主要操作和文本不重叠。
 
-## 八、静态与动态插件策略
+## 八、DSH 原生插件策略 ⚡
 
-静态插件是默认开发、验证和发布方式：
+`@flowboard/dsh` 是唯一安装、开发验证和公开发布的插件身份：
 
 - 使用完整 React/TypeScript/CSS Modules 工程能力；
 - 支持类型检查、组件复用、测试、增量构建和正式打包；
-- 一键开发脚本负责校验、构建、维护本地 workspace 包软链接，并通过裸包名临时 patch 启动 DSH；静态 Host 内嵌 API/Worker 生命周期；
-- `pnpm dev` 不接受必需参数，不安装或重装插件，也不修改 DSH profile manifest；裸包名让 DSH 能发现并发布 `dsh.client` 浏览器 bundle；
-- Whisper CLI、共享库和多语言 small 模型进入 server 发布清单，浏览器直接生成高质量重采样 WAV，不依赖系统 Whisper 或 ffmpeg；
-- 开发和重构不执行插件重装，只有正式发布才生成 tgz。
+- 一键开发脚本执行完整检查与打包，通过真实 `dsh plugin --profile web add` 把 tarball 安装到隔离 profile，再由 `dsh web` 启动；
+- 禁止 workspace 软链接、临时 `--patch` 和分别挂载 Host/Client，避免绕过用户实际安装边界；
+- 内部模块保持 `private`，Host、Client、Typert 和依赖聚合到一个公开包；
+- Whisper CLI、共享库和多语言 small 模型从 server 源资产暂存到公开包，并以 SHA-256 校验，浏览器直接生成高质量重采样 WAV，不依赖系统 Whisper 或 ffmpeg。
 
-动态插件降级为实验与应急入口：
+动态源码仅作为 DSH 内部诊断与应急入口，不进入 npm 包：
 
 - 保留 `dynamic/flowboard.host.js` 与 `dynamic/flowboard.client.js`；
 - 只通过 `host.call` 访问 Host，浏览器不得直接 `fetch`；
@@ -263,6 +263,7 @@ AI 不可自动执行：删除实体、修改成员权限、修改团队结构�
 
 | 模块 | 代码位置 | 职责 |
 | --- | --- | --- |
+| Public DSH Plugin | `packages/dsh` | 唯一公开 manifest、Host/Client 聚合包、Typert 和 Whisper 发布资产 🆕 |
 | Contracts | `packages/contracts/src/index.ts` | v3 DTO、会议意图命令、Zod 校验与上传限制 |
 | Static Client | `packages/dsh-client/src/client` | 导航、人物视角、Jira/表格、会议录音与 Supervisor Dock |
 | Static Host | `packages/dsh-service/src` | HTTP Client、Typert Remote、MeetingCoordinator、Agent 工具及内嵌 API/Worker 生命周期 |
@@ -285,10 +286,10 @@ SQLite 是当前本地和小团队部署的事实源；本轮不虚构 PostgreSQ
 - [x] 任务、会议和资料 Markdown 打开、编辑与关联
 - [x] AI 会议实时分段、长期 Supervisor、意图账本、Steering、总结与审计
 - [x] 动态 Host 转写任务短轮询，不再出现同步调用超时
-- [x] 静态插件改为默认开发与发布形态
-- [x] 一键开发脚本，不重装插件
-- [x] 零参数 `pnpm dev` 启动本地静态 workspace、DSH、API 与默认转录
-- [x] Whisper 运行时和模型随 server 包发布，浏览器直接编码 PCM WAV
+- [x] `@flowboard/dsh` 成为唯一安装与发布身份
+- [x] 一键开发脚本打真实 tarball，并通过 DSH CLI 安装到隔离 profile
+- [x] 零参数 `pnpm dev` 启动已安装的 DSH 插件、API 与默认转录
+- [x] Whisper 运行时和模型随 `@flowboard/dsh` 发布，浏览器直接编码 PCM WAV
 - [x] README 与所有架构文档和源码一致
 - [x] `pnpm run check`、`pnpm run build`、manifest 校验通过
 
