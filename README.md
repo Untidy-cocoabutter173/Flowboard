@@ -1,103 +1,241 @@
-# Flowboard 插件
+# Flowboard
 
-Flowboard 是面向 DeepSeek Harness（DSH）的 AI 工作空间。它把项目、任务、会议、资料、人员与团队放在同一套关系模型中，并让 AI 以会议秘书身份持续听取转录、创建任务、沉淀资料和完成会后整理。
+**把日常办公交给 AI，让整个团队共享同一份工作进展。**
 
-作者：构序科技
+Flowboard 是一个运行在 DeepSeek Harness 上的开源 AI 办公工作空间。团队在这里共同管理项目、任务、资料、会议、人员和日程；每位成员则通过自己的 AI Agent 查询信息、整理内容、安排任务并跟进工作。
 
-## 产品结构
+Flowboard 的重点不是“在办公软件里增加一个聊天框”，而是改变谁来维护工作系统：人负责目标、判断与授权，AI 负责把讨论和意图持续转化为可执行、可共享、可追踪的工作结果。
 
-- 左侧是完整工作区菜单：首页、我的任务、个人看板、个人日程、会议、资料、人员、团队和项目分组；项目分组展开为每个可访问项目。
-- 当前人物视角固定显示在菜单顶部，可跨项目查看该人员的任务、看板和日程，但不会改变服务端登录身份或权限。
-- 每个项目包含概览、Jira 面板、任务列表、会议、资料和人员。
-- Jira 面板使用 Dnd Kit 支持任务拖放、状态列配置、负责人、优先级、进度和截止时间编辑。
-- 任务列表采用多维表格交互，内置字段可原位编辑，自定义表头支持文本、数字、勾选、日期、单选、多选和人员类型。
-- 静态界面以 Ant Design 5 的主题、菜单、表格、弹窗、选择器和日期控件为统一设计系统，TanStack Table 提供任务筛选与行模型，CSS Modules 只负责工作台布局和领域样式。
-- 项目成员决定任务可选负责人；个人任务和个人看板按负责人跨项目聚合。
-- 任务详情、会议总结和项目资料可作为 Markdown 打开、编辑和预览。
-- 项目、会议、资料是显式多对多关系；任务归属一个主项目，并可关联多个会议和资料。
-- 我的任务、日历和个人看板跨项目聚合，不复制业务数据。
-- 首页可直接开始 AI 会议。浏览器使用 VAD 自动分段，转录只写入会议稿；MeetingCoordinator 持续把完整上下文交给同一 Supervisor，并管理意图与后台 Subagent。
-- 会议结束进入 `finalizing`，AI 使用结构化工具写入总结、决议、风险、行动项、资料和操作记录，完成后进入 `ended`。
+> **Developer Preview**：Flowboard 仍处于早期开发阶段，接口、数据结构和安装方式可能发生不兼容变化。
 
-## 运行边界
+> **产品主图占位**
+>
+> 建议展示完整工作空间：左侧团队与项目导航，中间个人任务或项目看板，右侧可见 AI 操作或会议状态。
+
+## Flowboard 解决什么问题
+
+今天的办公软件默认“人服务于系统”：人要从会议里抄出行动项，把讨论整理成文档，创建任务，补负责人和截止时间，再不断更新看板。信息一旦没有及时录入，团队看到的系统就会迅速过期。
+
+通用 AI 助手解决了部分信息处理问题，但它们通常停留在个人聊天中：不知道团队当前有哪些项目和资料，无法安全修改共享任务，也不会把一次回答变成团队可以继续使用的工作事实。每个人都拥有一个孤立的 AI，反而可能制造更多信息孤岛。
+
+Flowboard 在两者之间补上一层共享工作空间：
+
+- **团队共享事实**：项目、任务、资料、会议、人员和日程保存在同一套关系模型中。
+- **个人委托工作**：每位成员通过自己的 Harness 与 Agent 交流，不需要所有人共用一个机器人或聊天窗口。
+- **结果回到团队**：Agent 创建的任务、文档、决议和风险会写回 Flowboard，其他成员和他们的 Agent 可以立即继续使用。
+- **权限仍然有效**：AI 使用当前成员的权限，不能因为自动化而绕过项目归属、版本冲突或高风险确认。
+
+这形成了 Flowboard 最核心的工作循环：
 
 ```text
-静态 Client -> Typert Remote -> FlowboardService ┐
-动态 Client -> host.call -> 动态 Host             ├-> HTTP v2 -> SQLite
-Agent 工具  -> 静态/动态 Host                     ┘
-PCM/WAV 分段 -> 一次性上传票据 -> 内嵌 Whisper Worker -> utterance
+人的目标、讨论和判断
+        ↓
+个人 AI Agent（运行在 Harness 中）
+        ↓ 读取上下文、调用工具、执行工作
+Flowboard 团队共享空间
+        ↓
+任务 / 资料 / 决议 / 风险 / 日程
+        ↓
+团队成员和其他 Agent 继续协作
 ```
 
-- 浏览器不持有 Flowboard API Token。
-- 音频票据统一使用不含 codec 参数的小写 MIME；动态 Host 按 Base64 填充精确计算上传字节数，票据与实际音频长度保持一致。
-- 静态 Agent 工具直接使用 `FlowboardService` 拥有的 HTTP Client，不自调用 Typert Remote。
-- `flowboard_snapshot {}` 读取轻量 `/v1/summary`；指定项目或会议时才读取完整快照。
-- Agent 写工具使用 DSH `callId` 生成稳定幂等键。
-- 服务端统一负责鉴权、授权、幂等、乐观锁、审计、历史版本、事务和变更游标。
-- 数据库 schema 固定为 v2。检测到旧 schema 会拒绝启动并提示删除开发数据库，不执行迁移或兼容读取。
+## 一次完整的工作如何发生
 
-## 静态插件（默认开发与发布方式）
+以一次项目会议为例：
 
-| 包 | 职责 |
-| --- | --- |
-| `@flowboard/contracts` | API v3 DTO、会议意图命令联合类型和 Zod 校验 |
-| `@flowboard/server` | Fastify API、SQLite v3 仓储、上传、转写 Worker 和随包发布的 Whisper 运行时 |
-| `@flowboard/dsh-service` | Host HTTP Client、Typert Remote、细粒度 Agent 工具和内嵌服务生命周期 |
-| `@flowboard/dsh-client` | Ant Design 工作空间、Jira/多维表格、VAD 会议 owner 与 Supervisor Dock |
-| `@flowboard/dsh` | 可安装的静态 DSH 组合包 |
+### 会前
 
-开发启动只有一条命令：
+成员可以让自己的 Agent 汇总项目进展、未完成任务和相关资料，形成议题，而不必在多个系统之间手动收集上下文。
+
+### 会中
+
+Flowboard 的会议秘书持续接收转录，并结合项目、人员和已有任务理解讨论。它不会只按最后一句话执行，而是维护一份带证据和修订版本的意图记录，因此能够识别：
+
+- “这件事交给张三”形成了一个行动项；
+- “不对，改成李四负责”是在修订同一个行动项；
+- “下周三之前完成”补充了截止时间；
+- “这个方案先不做了”撤销了之前的意图。
+
+### 会后
+
+会议不是只留下录音和摘要。根据所选自动化级别，AI 会整理或执行以下结果：
+
+- 创建并分配任务；
+- 写入负责人、优先级和截止时间；
+- 记录决议、风险与未决问题；
+- 创建项目资料并关联来源会议；
+- 生成会议总结和 AI 操作记录。
+
+### 日常跟进
+
+任何团队成员都可以继续通过自己的 Agent 询问或推进工作，例如：
+
+```text
+整理我本周负责但还没有截止时间的任务。
+
+汇总产品项目最近三场会议中仍未解决的风险。
+
+为上线前检查创建任务，安排负责人，并关联今天的会议。
+
+把这次讨论形成的技术决策整理成项目资料。
+```
+
+> **AI 会议流程图或演示 GIF 占位**
+>
+> 建议展示：实时转录 → 意图识别与修订 → 任务/资料落库 → 会后总结。
+
+## 当前能力
+
+### 任务与项目
+
+- Jira 式任务看板，支持拖放、工作流状态、负责人、优先级、进度和截止时间。
+- 多维任务表，支持单元格原位编辑和文本、数字、日期、单选、多选、人员等自定义字段。
+- 项目概览、任务列表、项目会议、项目资料和项目成员管理。
+- 个人任务、个人看板和个人日程跨项目聚合，不复制业务数据。
+
+### 资料与上下文
+
+- 使用 Markdown 管理任务详情、项目资料、会议转录和会议总结。
+- 资料可以关联多个项目、会议和任务，并保留来源上下文。
+- 项目、会议、任务与资料不是孤立页面，Agent 可以沿关系读取完整工作背景。
+
+### AI 会议秘书
+
+- 浏览器端语音活动检测与音频切分。
+- 本地 Whisper 转录，完成一段后立即写入会议稿。
+- 持续分析完整会议上下文，而不是把每句话当作独立指令。
+- 使用意图账本跟踪行动项、资料、决议、风险和备注的新增、修订与撤销。
+- 支持三种参与方式：只记录、建议后执行、自动执行安全操作。
+
+### 团队协作
+
+- 团队、人员、项目成员和项目角色管理。
+- `owner / admin / member / viewer` 分层权限。
+- 页面操作和 Agent 操作使用同一套服务端规则。
+- 写操作具备幂等、乐观锁、事务、历史版本和审计记录。
+
+> **任务与资料协作截图占位**
+>
+> 建议并排展示项目看板、多维任务表和资料页面，突出它们属于同一个工作上下文。
+
+## Flowboard 与 Harness 的关系
+
+Flowboard **不是插件系统**。
+
+- **Flowboard** 是具体的办公应用，拥有自己的界面、领域模型、数据服务和 AI 工具。
+- **DeepSeek Harness（DSH）** 是 Agent 的运行环境，负责会话、模型、工具调用和宿主界面。
+- **`@flowboard/dsh`** 只是 Flowboard 当前接入 DSH 的安装包和运行时组合方式。
+
+换句话说，用户使用的是 Flowboard；Harness 让每位用户的 Agent 能够进入 Flowboard 工作。仓库采用 DSH bundle 交付，并不意味着 Flowboard 要成为一个通用插件平台。
+
+## 为什么开源
+
+AI 办公系统不仅保存资料，还会代表用户执行操作。这样的系统需要比传统 SaaS 更强的可检查性和可控制性。
+
+我们选择开源 Flowboard，是因为：
+
+- 团队应当能够知道 AI 看到了什么、调用了什么工具、修改了什么数据；
+- 办公数据和会议内容不应被锁在无法检查的黑盒中；
+- 不同团队有不同的项目流程、权限结构和资料习惯，需要能够自行修改和扩展；
+- AI Agent 与共享工作空间如何协作，仍是一个值得共同探索的工程问题。
+
+Flowboard 希望提供的不是一套不可改变的“标准办公流程”，而是一个可以运行、研究和继续建设的 AI 原生团队工作空间。
+
+## 快速开始
+
+### 环境要求
+
+- Linux x64。当前内置转录运行时仅提供该平台版本。
+- Node.js `22.19+` 或 `24+`。
+- pnpm `11.7.0`。
+- DeepSeek Harness `0.1.0-rc.6`，并确保 `dsh` 命令可用。
+
+可以先确认 DSH 能正常启动：
 
 ```sh
+npx @deepseek-ai/dsh web
+```
+
+克隆 Flowboard 后，在仓库根目录运行：
+
+```sh
+pnpm install
 pnpm dev
 ```
 
-脚本会依次校验动态降级源码、类型检查、构建静态 Host/Client，生成只在本次进程使用的绝对路径 patch，然后启动 DSH Web。`FlowboardService` 同时拥有 API、SQLite 和转写 Worker 的生命周期；停止 DSH 时这些资源会一并关闭。
+启动完成后访问：
 
-默认地址是 DSH Web `http://127.0.0.1:3080`、Flowboard API `http://127.0.0.1:8787`。脚本不会安装或重装插件，也不改 profile manifest；它只幂等维护 `@flowboard/dsh-service` 与 `@flowboard/dsh-client` 的本地 workspace 软链接，使 DSH 保留包身份并发布浏览器 Client。浏览器直接编码 16 kHz PCM WAV，`@flowboard/server` 随包携带 Linux x64 `whisper-cli`、共享库和多语言 `ggml-base` 模型，因此不要求系统安装 Whisper、ffmpeg、模型或配置环境变量。
+- Flowboard：`http://127.0.0.1:3080`
+- Flowboard API：`http://127.0.0.1:8787`
 
-## 动态插件（实验与应急入口）
+本地数据默认保存在 `./data`。首次启动会创建一个本地 Owner、默认团队和默认项目。内置运行方式会同时启动 Flowboard API、SQLite 数据库和转录 Worker。
 
-仓库直接维护可传给 `cordis_define.code.host/client` 的函数体：
+## 当前状态与限制
 
-- `dynamic/flowboard.host.js`
-- `dynamic/flowboard.client.js`
+Flowboard 目前更适合本地体验、产品验证和小团队试用，还不是面向生产环境的完整协作服务。
 
-动态 Client 是纯 JavaScript、React `createElement`，不包含 import、TypeScript、JSX、Node 能力或 `fetch`。它保留关键导航、任务、会议、资料、人员和 Markdown 编辑能力，但不承诺与静态版逐像素同步；浏览器统一通过 `host.call` 访问动态 Host。Host 从环境读取：
+- 当前内置模式默认使用单一本地 Owner；数据模型已经包含团队和项目权限，但完整的账号登录、邀请与令牌管理尚未接入。
+- 当前持久化使用 SQLite，没有 PostgreSQL adapter 或分布式部署方案。
+- 内置 Whisper 运行时只支持 Linux x64，其他平台需要提供自定义转录命令或对应运行时。
+- 数据库 schema 仍在快速演进，当前不提供生产迁移链。
+- 当前 Agent 已能读取工作空间、创建和更新任务、创建资料及处理会议意图，但“把全部办公工作交给 AI”仍是产品方向，不是已经完成的能力声明。
 
-| 环境变量 | 默认值 | 说明 |
-| --- | --- | --- |
-| `FLOWBOARD_API_BASE` | `http://127.0.0.1:8787` | Flowboard API |
-| `FLOWBOARD_TOKEN` | 无 | 必填的 Bearer Token |
+## 工作原理
 
-验证动态源码：
+页面、Agent 和会议协调器最终都访问同一个 Flowboard 服务，避免 UI 与 AI 各自维护一套业务状态。
 
-```sh
-pnpm run dynamic:check
+```text
+Flowboard Web ───────────────┐
+个人 Agent / AI 工具 ────────┼──> Flowboard Service ──> SQLite
+会议秘书 / Meeting Supervisor ┘            │
+                                            └──> Transcription Worker
 ```
 
-正式发布或部署时运行：
+服务端统一处理身份、权限、输入校验、幂等、乐观锁、事务和审计。浏览器不读取 Flowboard API Token；Agent 写入也不能绕过业务规则。
+
+更完整的实现说明见[系统架构文档](docs/architecture/system-overview.md)。
+
+## 开发
 
 ```sh
-pnpm run build
-pnpm --filter @flowboard/dsh pack --pack-destination ../../artifacts
-dsh plugin --profile <配置名> add ./artifacts/flowboard-dsh-0.1.2.tgz
+pnpm run typecheck       # TypeScript 类型检查
+pnpm run test:run        # 单元与集成测试
+pnpm run dynamic:check   # DSH 动态接入代码检查
+pnpm run pack:check      # 发布包内容检查
+pnpm run check           # 完整检查
 ```
 
-动态 Host 上传音频后立即返回 `jobId`，动态 Client 再用短调用轮询转写状态，因此慢 ASR 不会触发单次 `host.call` 超时。
+主要目录：
 
-## 独立服务调试
-
-正常开发不需要这一节，只运行 `pnpm dev`。单独调试服务端时可使用：
-
-```sh
-FLOWBOARD_TOKEN=local-secret pnpm run server
-pnpm run worker
+```text
+packages/contracts/    共享协议与运行时校验
+packages/server/       Flowboard API、SQLite 与转录 Worker
+packages/dsh-service/  DSH 接入、Agent 工具与会议协调
+packages/dsh-client/   Flowboard Web 工作空间
+packages/dsh/          DSH 安装包
+dynamic/               实验性 DSH 动态接入
+docs/                  架构与设计文档
 ```
 
-独立 Worker 默认也使用随包发布的 Whisper。`FLOWBOARD_TRANSCRIBE_COMMAND` 与 `FLOWBOARD_TRANSCRIBE_ARGS` 仅保留为高级调试覆盖，不是启动前提。
+提交代码前请阅读 [AGENTS.md](AGENTS.md)，并运行 `pnpm run check`。
 
-## 文档
+## 参与贡献
+
+Flowboard 仍处于产品和架构快速成形的阶段。欢迎通过 Issue 或 Pull Request 参与：
+
+- 分享真实团队中的任务、资料和会议工作流；
+- 改进 Agent 可以理解和执行的办公能力；
+- 完善多用户、部署、备份和数据迁移；
+- 增加不同平台的本地转录支持；
+- 改进交互、文档、测试和可访问性。
+
+## 相关文档
 
 - [系统架构](docs/architecture/system-overview.md)
-- [工作空间与 AI 会议重构](docs/dev/flowboard-workspace-ai-refactor.md)
+- [工作空间与 AI 会议设计](docs/dev/flowboard-workspace-ai-refactor.md)
+- [会议 Supervisor 设计](docs/dev/flowboard-meeting-supervisor-refactor.md)
+- [完整重构记录](docs/dev/flowboard-full-refactor.md)
+
+## License
+
+Flowboard 由构序科技发起。各项目包当前声明使用 MIT License；正式开源发布前还需要在仓库根目录补充完整的许可证文件。
