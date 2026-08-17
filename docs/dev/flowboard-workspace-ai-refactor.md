@@ -168,8 +168,9 @@ sequenceDiagram
   participant AI as DSH Supervisor
 
   Browser->>Host: meeting.update(live) + meeting.agent.bind(sessionId)
-  Browser->>Browser: 麦克风常开，VAD 分段
-  Browser->>Host: 创建上传票据并上传音频
+  Browser->>Browser: 麦克风常开，VAD 分段（唯一截流边界）
+  Browser->>Host: 提交已截流音频
+  Host->>API: 创建上传票据并 PUT 音频
   Host-->>Browser: jobId（不阻塞等待转写）
   loop 独立短轮询
     Browser->>Host: transcription(jobId)
@@ -187,6 +188,8 @@ sequenceDiagram
 ```
 
 动态 Host 的音频上传调用只返回 `jobId`，转写状态通过独立短调用轮询，避免将上传、排队和 ASR 完成塞进一次 `host.call` 导致 `transcription timed out`。静态与动态 Client 都只展示转写结果，不再写入或提交 Composer。
+
+静态 Client 同样不直接跨端口访问 Flowboard API：音频经 Typert Remote 交给 Host 上传。浏览器 VAD 已负责截流，Whisper/Worker 不再叠加固定窗口或延迟聚合；每个完成结果立即写入 utterance 和会议文字稿。默认转写使用随包多语言 `ggml-small`、中文语言提示和同一会议最近 utterance 的有界 prompt，静态与动态 Client 都使用带低通滤波的 sinc 重采样生成 16 kHz WAV。
 
 ### 6.2 AI 参与模式
 
@@ -245,7 +248,7 @@ AI 不可自动执行：删除实体、修改成员权限、修改团队结构�
 - 支持类型检查、组件复用、测试、增量构建和正式打包；
 - 一键开发脚本负责校验、构建、维护本地 workspace 包软链接，并通过裸包名临时 patch 启动 DSH；静态 Host 内嵌 API/Worker 生命周期；
 - `pnpm dev` 不接受必需参数，不安装或重装插件，也不修改 DSH profile manifest；裸包名让 DSH 能发现并发布 `dsh.client` 浏览器 bundle；
-- Whisper CLI、共享库和多语言 base 模型进入 server 发布清单，浏览器直接生成 WAV，不依赖系统 Whisper 或 ffmpeg；
+- Whisper CLI、共享库和多语言 small 模型进入 server 发布清单，浏览器直接生成高质量重采样 WAV，不依赖系统 Whisper 或 ffmpeg；
 - 开发和重构不执行插件重装，只有正式发布才生成 tgz。
 
 动态插件降级为实验与应急入口：

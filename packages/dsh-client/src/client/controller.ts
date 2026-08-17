@@ -38,6 +38,15 @@ export interface FlowboardState {
 
 const emptyRuntime = (): MeetingRuntime => ({ meetingId: null, recording: false, uploading: false, stopping: false, candidate: '', error: null })
 
+function encodeBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer)
+  let binary = ''
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000))
+  }
+  return btoa(binary)
+}
+
 export class FlowboardController implements HostObservable<FlowboardState> {
   private state: FlowboardState = { status: 'loading', snapshot: null, route: { area: 'home' }, selectedPersonId: null, meetingRuntimes: {}, busy: false, error: null }
   private readonly listeners = new Set<() => void>()
@@ -106,10 +115,8 @@ export class FlowboardController implements HostObservable<FlowboardState> {
 
   async uploadMeetingAudio(meetingId: string, blob: Blob, clientSegmentId: string = crypto.randomUUID(), startedAt?: string, endedAt?: string): Promise<TranscriptionView> {
     const contentType = blob.type || 'audio/webm'
-    const ticket = await this.remote.createUploadTicket({ meetingId, contentType, size: blob.size, clientSegmentId, ...(startedAt === undefined ? {} : { startedAt }), ...(endedAt === undefined ? {} : { endedAt }) }, this.abort.signal)
-    const response = await fetch(ticket.uploadUrl, { method: 'PUT', headers: { 'content-type': contentType }, body: blob, signal: this.abort.signal })
-    if (!response.ok) throw new Error(`音频上传失败（HTTP ${response.status}）`)
-    const { jobId } = await response.json() as { jobId: string }
+    const request = { meetingId, contentType, size: blob.size, clientSegmentId, ...(startedAt === undefined ? {} : { startedAt }), ...(endedAt === undefined ? {} : { endedAt }) }
+    const { jobId } = await this.remote.uploadAudio(request, encodeBase64(await blob.arrayBuffer()), this.abort.signal)
     for (;;) {
       const job = await this.remote.transcription({ jobId }, this.abort.signal)
       if (job.state === 'completed') { await this.refresh(); return job }

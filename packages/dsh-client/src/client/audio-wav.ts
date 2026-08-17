@@ -11,18 +11,23 @@ export function resampleMono(input: Float32Array, inputRate: number, outputRate 
   if (input.length === 0 || inputRate === outputRate) return input.slice()
 
   const ratio = inputRate / outputRate
-  const output = new Float32Array(Math.max(1, Math.floor(input.length / ratio)))
+  const output = new Float32Array(Math.max(1, Math.round(input.length / ratio)))
+  const cutoff = Math.min(1, outputRate / inputRate) * 0.94
+  const lobes = 12
+  const support = lobes / cutoff
+  const sinc = (value: number): number => Math.abs(value) < 1e-8 ? 1 : Math.sin(Math.PI * value) / (Math.PI * value)
+
   for (let target = 0; target < output.length; target += 1) {
-    const start = target * ratio
-    const end = Math.min(input.length, (target + 1) * ratio)
-    const first = Math.floor(start)
-    const last = Math.max(first + 1, Math.ceil(end))
+    const center = (target + 0.5) * ratio - 0.5
+    const first = Math.max(0, Math.ceil(center - support))
+    const last = Math.min(input.length - 1, Math.floor(center + support))
     let weighted = 0
     let weight = 0
-    for (let source = first; source < last && source < input.length; source += 1) {
-      const overlap = Math.max(0, Math.min(end, source + 1) - Math.max(start, source))
-      weighted += input[source]! * overlap
-      weight += overlap
+    for (let source = first; source <= last; source += 1) {
+      const normalized = (source - center) * cutoff
+      const kernel = cutoff * sinc(normalized) * sinc(normalized / lobes)
+      weighted += input[source]! * kernel
+      weight += kernel
     }
     output[target] = weight === 0 ? 0 : weighted / weight
   }

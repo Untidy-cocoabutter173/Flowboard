@@ -196,10 +196,11 @@ return {
       chunks.forEach(function (chunk) { inputLength += chunk.length })
       const input = new Float32Array(inputLength); let inputOffset = 0
       chunks.forEach(function (chunk) { input.set(chunk, inputOffset); inputOffset += chunk.length })
-      const ratio = inputRate / 16000; const output = new Float32Array(Math.max(1, Math.floor(input.length / ratio)))
+      const ratio = inputRate / 16000; const output = new Float32Array(Math.max(1, Math.round(input.length / ratio))); const cutoff = Math.min(1, 16000 / inputRate) * 0.94; const lobes = 12; const support = lobes / cutoff
+      function sinc(value) { return Math.abs(value) < 1e-8 ? 1 : Math.sin(Math.PI * value) / (Math.PI * value) }
       for (let target = 0; target < output.length; target++) {
-        const start = target * ratio; const end = Math.min(input.length, (target + 1) * ratio); let weighted = 0; let weight = 0
-        for (let source = Math.floor(start); source < Math.ceil(end) && source < input.length; source++) { const overlap = Math.max(0, Math.min(end, source + 1) - Math.max(start, source)); weighted += input[source] * overlap; weight += overlap }
+        const center = (target + 0.5) * ratio - 0.5; const first = Math.max(0, Math.ceil(center - support)); const last = Math.min(input.length - 1, Math.floor(center + support)); let weighted = 0; let weight = 0
+        for (let source = first; source <= last; source++) { const normalized = (source - center) * cutoff; const kernel = cutoff * sinc(normalized) * sinc(normalized / lobes); weighted += input[source] * kernel; weight += kernel }
         output[target] = weight ? weighted / weight : 0
       }
       const buffer = new ArrayBuffer(44 + output.length * 2); const view = new DataView(buffer)

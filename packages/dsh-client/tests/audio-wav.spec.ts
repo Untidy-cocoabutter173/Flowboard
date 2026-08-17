@@ -2,8 +2,16 @@ import { describe, expect, it } from 'vitest'
 import { encodePcm16Wav, resampleMono } from '../src/client/audio-wav.ts'
 
 describe('PCM WAV encoder', () => {
-  it('downsamples mono audio by averaging the source window', () => {
-    expect([...resampleMono(new Float32Array([1, 1, 1, -1, -1, -1]), 48_000, 16_000)]).toEqual([1, -1])
+  it('preserves a constant signal when downsampling', () => {
+    const output = resampleMono(new Float32Array(480).fill(0.5), 48_000, 16_000)
+    expect(output).toHaveLength(160)
+    expect(Math.max(...output.map(sample => Math.abs(sample - 0.5)))).toBeLessThan(1e-6)
+  })
+
+  it('attenuates frequencies above the target Nyquist limit', () => {
+    const input = Float32Array.from({ length: 480 }, (_, index) => index % 2 === 0 ? 1 : -1)
+    const output = resampleMono(input, 48_000, 16_000)
+    expect(Math.max(...output.slice(16, -16).map(Math.abs))).toBeLessThan(0.02)
   })
 
   it('writes a valid 16 kHz mono PCM header and clamped samples', () => {

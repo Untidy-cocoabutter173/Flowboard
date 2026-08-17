@@ -1,6 +1,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import {
+  MAX_UPLOAD_BYTES,
   changesRequestSchema,
   commandRequestSchema,
   snapshotRequestSchema,
@@ -85,6 +86,16 @@ export class FlowboardService extends TypertRemoteService {
   @Remote('createUploadTicket')
   async remoteCreateUploadTicket(requestJson: string, signal: AbortSignal): Promise<string> {
     return JSON.stringify(await this.client.createUploadTicket(uploadTicketRequestSchema.parse(JSON.parse(requestJson) as UploadTicketRequest), signal))
+  }
+
+  @Remote('uploadAudio')
+  async remoteUploadAudio(requestJson: string, audioBase64: string, signal: AbortSignal): Promise<string> {
+    const parsed = uploadTicketRequestSchema.parse(JSON.parse(requestJson) as UploadTicketRequest)
+    const request = { ...parsed, contentType: parsed.contentType.split(';', 1)[0]!.trim().toLowerCase() }
+    if (audioBase64.length > Math.ceil(MAX_UPLOAD_BYTES / 3) * 4 + 4) throw new Error('Audio segment exceeds the upload limit')
+    const audio = Buffer.from(audioBase64, 'base64')
+    if (audio.byteLength !== request.size) throw new Error('Audio segment size does not match the upload request')
+    return JSON.stringify(await this.client.uploadAudio(request, audio, signal))
   }
 
   @Remote('transcription')

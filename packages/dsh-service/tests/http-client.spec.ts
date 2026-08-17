@@ -17,4 +17,21 @@ describe('FlowboardHttpClient', () => {
     const client = new FlowboardHttpClient({ apiBase: 'http://flowboard.test', token: 'secret' }, fetchImpl as typeof fetch)
     await expect(client.snapshot({})).rejects.toEqual(expect.objectContaining<Partial<FlowboardRemoteError>>({ code: 'CONFLICT', status: 409, message: '版本冲突' }))
   })
+
+  it('由 Host 使用一次性票据上传音频并立即返回转写任务', async () => {
+    const fetchImpl = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      if (String(input).endsWith('/v1/uploads/tickets')) {
+        return new Response(JSON.stringify({ uploadUrl: 'http://flowboard.test/v1/uploads/ticket-1', expiresAt: '2026-08-17T00:05:00Z', maxBytes: 1024 }), { status: 200 })
+      }
+      expect(init?.body).toBeInstanceOf(ArrayBuffer)
+      return new Response(JSON.stringify({ jobId: 'job-1' }), { status: 202 })
+    })
+    const client = new FlowboardHttpClient({ apiBase: 'http://flowboard.test', token: 'host-secret' }, fetchImpl as typeof fetch)
+    const request = { meetingId: 'meeting-1', contentType: 'audio/wav', size: 3, clientSegmentId: 'segment-1' }
+
+    await expect(client.uploadAudio(request, new Uint8Array([1, 2, 3]))).resolves.toEqual({ jobId: 'job-1' })
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+    expect(fetchImpl.mock.calls[1]?.[0]).toBe('http://flowboard.test/v1/uploads/ticket-1')
+    expect(fetchImpl.mock.calls[1]?.[1]).toMatchObject({ method: 'PUT', headers: { 'content-type': 'audio/wav' } })
+  })
 })

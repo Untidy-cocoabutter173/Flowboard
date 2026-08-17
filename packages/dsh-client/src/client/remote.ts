@@ -14,8 +14,11 @@ export interface FlowboardRemotePort {
   command(request: string, signal?: AbortSignal): Promise<RemoteResult<string>>
   changes(request: string, signal?: AbortSignal): Promise<RemoteResult<string>>
   createUploadTicket(request: string, signal?: AbortSignal): Promise<RemoteResult<string>>
+  uploadAudio(request: string, audioBase64: string, signal?: AbortSignal): Promise<RemoteResult<string>>
   transcription(request: string, signal?: AbortSignal): Promise<RemoteResult<string>>
 }
+
+export interface AudioUploadResult { jobId: string }
 
 function value<T>(result: RemoteResult<string>): T {
   if (!result.ok || result.value === undefined) throw new Error(result.error?.message ?? 'Flowboard Remote request failed')
@@ -35,6 +38,9 @@ export class FlowboardRemoteClient {
   }
   async createUploadTicket(request: UploadTicketRequest, signal?: AbortSignal): Promise<UploadTicketResult> {
     return value(await this.remote.createUploadTicket(JSON.stringify(request), signal))
+  }
+  async uploadAudio(request: UploadTicketRequest, audioBase64: string, signal?: AbortSignal): Promise<AudioUploadResult> {
+    return value(await this.remote.uploadAudio(JSON.stringify(request), audioBase64, signal))
   }
   async transcription(request: TranscriptionRequest, signal?: AbortSignal): Promise<TranscriptionView> {
     return value(await this.remote.transcription(JSON.stringify(request), signal))

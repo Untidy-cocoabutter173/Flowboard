@@ -48,6 +48,7 @@ type Row = Record<string, any>
 const WRITE_ROLES: readonly AccessRole[] = ['owner', 'admin', 'member']
 const ADMIN_ROLES: readonly AccessRole[] = ['owner', 'admin']
 const DEFAULT_SETTINGS: MeetingSettings = { automation: 'execute', feedback: 'activity', answerQuestions: true, silenceSec: 3 }
+const TRANSCRIPTION_PROMPT_CODE_POINTS = 200
 
 const now = (): string => new Date().toISOString()
 const nullable = (value: unknown): string | null => value === null || value === undefined ? null : String(value)
@@ -237,15 +238,21 @@ export class SqliteFlowboardRepository {
     return this.mapTranscription(row)
   }
 
-  claimTranscription(): (TranscriptionView & { audioPath: string; userId: string; tenantId: string }) | undefined {
+  claimTranscription(): (TranscriptionView & { audioPath: string; userId: string; tenantId: string; prompt: string }) | undefined {
     this.db.exec('BEGIN IMMEDIATE')
     try {
       const row = this.db.prepare(`SELECT * FROM transcription_jobs WHERE state='pending' ORDER BY created_at LIMIT 1`).get() as Row | undefined
       if (row === undefined) { this.db.exec('COMMIT'); return undefined }
       const stamp = now()
       this.db.prepare(`UPDATE transcription_jobs SET state='processing',updated_at=? WHERE id=? AND state='pending'`).run(stamp, row.id)
+      const recent = (this.db.prepare('SELECT text FROM meeting_utterances WHERE meeting_id=? ORDER BY sequence DESC LIMIT 8').all(row.meeting_id) as Row[])
+        .reverse()
+        .map(item => String(item.text).trim())
+        .filter(Boolean)
+        .join('\n')
+      const prompt = Array.from(recent).slice(-TRANSCRIPTION_PROMPT_CODE_POINTS).join('')
       this.db.exec('COMMIT')
-      return { ...this.mapTranscription({ ...row, state: 'processing', updated_at: stamp }), audioPath: String(row.audio_path), userId: String(row.user_id), tenantId: String(row.tenant_id) }
+      return { ...this.mapTranscription({ ...row, state: 'processing', updated_at: stamp }), audioPath: String(row.audio_path), userId: String(row.user_id), tenantId: String(row.tenant_id), prompt }
     } catch (error) { this.db.exec('ROLLBACK'); throw error }
   }
 

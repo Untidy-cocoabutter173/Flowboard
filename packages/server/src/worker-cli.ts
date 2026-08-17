@@ -9,7 +9,7 @@ import { resolveWhisperCommand } from './whisper-runtime.ts'
 const whisper = resolveWhisperCommand()
 const db = openDatabase({ path: resolve(process.env.FLOWBOARD_DB ?? 'data/flowboard.db') })
 const repository = new SqliteFlowboardRepository(db, process.env.FLOWBOARD_PUBLIC_URL ?? 'http://127.0.0.1:8787')
-const transcriber = new CommandTranscriber(whisper.command, whisper.args, whisper.env)
+const transcriber = new CommandTranscriber(whisper.command, whisper.args, whisper.env, whisper.promptFlag)
 while (true) {
   if (!await processNextTranscription(repository, transcriber)) await delay(1_000)
 }

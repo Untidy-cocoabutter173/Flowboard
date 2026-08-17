@@ -26,6 +26,10 @@ export interface HttpClientConfig {
   requestTimeoutMs?: number
 }
 
+export interface AudioUploadResult {
+  jobId: string
+}
+
 export class FlowboardHttpClient {
   private readonly base: string
   private readonly timeoutMs: number
@@ -59,6 +63,30 @@ export class FlowboardHttpClient {
 
   createUploadTicket(request: UploadTicketRequest, signal?: AbortSignal): Promise<UploadTicketResult> {
     return this.request('/v1/uploads/tickets', { method: 'POST', body: JSON.stringify(request) }, signal)
+  }
+
+  async uploadAudio(request: UploadTicketRequest, audio: Uint8Array, signal?: AbortSignal): Promise<AudioUploadResult> {
+    const ticket = await this.createUploadTicket(request, signal)
+    const timeout = AbortSignal.timeout(this.timeoutMs)
+    const combined = signal === undefined ? timeout : AbortSignal.any([signal, timeout])
+    const body = audio.buffer.slice(audio.byteOffset, audio.byteOffset + audio.byteLength) as ArrayBuffer
+    const response = await this.fetchImpl(ticket.uploadUrl, {
+      method: 'PUT',
+      headers: { 'content-type': request.contentType },
+      body,
+      signal: combined,
+    })
+    const result = await response.json() as AudioUploadResult | FlowboardErrorBody
+    if (!response.ok) {
+      const failure = result as FlowboardErrorBody
+      throw new FlowboardRemoteError(
+        failure.error?.code ?? 'UPLOAD_FAILED',
+        failure.error?.message ?? `Flowboard audio upload returned HTTP ${response.status}`,
+        response.status,
+        failure.error?.details,
+      )
+    }
+    return result as AudioUploadResult
   }
 
   transcription(request: TranscriptionRequest, signal?: AbortSignal): Promise<TranscriptionView> {

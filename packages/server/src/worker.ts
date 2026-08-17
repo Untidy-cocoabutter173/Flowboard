@@ -3,15 +3,19 @@ import { spawn } from 'node:child_process'
 import type { SqliteFlowboardRepository } from './repository.ts'
 
 export interface Transcriber {
-  transcribe(audioPath: string, signal?: AbortSignal): Promise<string>
+  transcribe(audioPath: string, signal?: AbortSignal, prompt?: string): Promise<string>
 }
 
 export class CommandTranscriber implements Transcriber {
-  constructor(readonly command: string, readonly args: string[], readonly env?: NodeJS.ProcessEnv) {}
+  constructor(readonly command: string, readonly args: string[], readonly env?: NodeJS.ProcessEnv, readonly promptFlag?: string) {}
 
-  transcribe(audioPath: string, signal?: AbortSignal): Promise<string> {
+  transcribe(audioPath: string, signal?: AbortSignal, prompt?: string): Promise<string> {
     return new Promise((resolve, reject) => {
-      const child = spawn(this.command, [...this.args, audioPath], { signal, env: this.env, stdio: ['ignore', 'pipe', 'pipe'] })
+      const cleanPrompt = prompt?.trim()
+      const promptArgs = this.promptFlag === undefined || cleanPrompt === undefined || cleanPrompt === ''
+        ? []
+        : [this.promptFlag, cleanPrompt]
+      const child = spawn(this.command, [...this.args, ...promptArgs, audioPath], { signal, env: this.env, stdio: ['ignore', 'pipe', 'pipe'] })
       const stdout: Buffer[] = []
       const stderr: Buffer[] = []
       child.stdout.on('data', chunk => stdout.push(Buffer.from(chunk)))
@@ -28,7 +32,7 @@ export async function processNextTranscription(repository: SqliteFlowboardReposi
   const job = repository.claimTranscription()
   if (job === undefined) return false
   try {
-    const text = await transcriber.transcribe(job.audioPath, signal)
+    const text = await transcriber.transcribe(job.audioPath, signal, job.prompt)
     repository.finishTranscription(job.id, text)
   } catch (error) {
     repository.failTranscription(job.id, error instanceof Error ? error.message : String(error))

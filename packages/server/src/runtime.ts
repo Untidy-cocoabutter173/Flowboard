@@ -35,7 +35,7 @@ export async function startFlowboardRuntime(options: FlowboardRuntimeOptions = {
     ...(options.logger === undefined ? {} : { logger: options.logger }),
   })
   const whisper = resolveWhisperCommand()
-  const transcriber = new CommandTranscriber(whisper.command, whisper.args, whisper.env)
+  const transcriber = new CommandTranscriber(whisper.command, whisper.args, whisper.env, whisper.promptFlag)
   const abort = new AbortController()
 
   try {

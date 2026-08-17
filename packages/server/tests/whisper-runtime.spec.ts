@@ -5,8 +5,13 @@ describe('bundled whisper runtime', () => {
   it('uses the packaged executable and model with no configuration', () => {
     const resolved = resolveWhisperCommand({})
     expect(resolved.command).toMatch(/vendor\/whisper\/linux-x64\/bin\/whisper-cli$/)
-    expect(resolved.args).toEqual(expect.arrayContaining(['-m', expect.stringMatching(/ggml-base\.bin$/), '-l', 'auto', '-np', '-nt']))
+    expect(resolved.args).toEqual(expect.arrayContaining(['-m', expect.stringMatching(/ggml-small\.bin$/), '-l', 'zh', '-np', '-nt']))
+    expect(resolved.promptFlag).toBe('--prompt')
     expect(resolved.env?.LD_LIBRARY_PATH).toMatch(/vendor\/whisper\/linux-x64\/lib/)
+  })
+
+  it('allows an explicit meeting language override', () => {
+    expect(resolveWhisperCommand({ FLOWBOARD_TRANSCRIBE_LANGUAGE: 'en' }).args).toEqual(expect.arrayContaining(['-l', 'en']))
   })
 
   it('retains an explicit advanced command override', () => {

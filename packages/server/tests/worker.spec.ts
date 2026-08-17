@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { access, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -18,10 +18,13 @@ describe('转写 worker', () => {
     await rm(directory, { recursive: true, force: true })
   })
 
-  async function job(): Promise<{ id: string; path: string }> {
+  async function job(priorText?: string): Promise<{ id: string; path: string }> {
     const actor = repository.authenticate('worker-token')
     const meeting = repository.execute(actor, { idempotencyKey: crypto.randomUUID(), type: 'meeting.create', payload: { teamId: 'team-local', projectIds: ['project-local'], title: '转写测试' } })
     repository.execute(actor, { idempotencyKey: crypto.randomUUID(), type: 'meeting.update', expectedVersion: 1, payload: { id: meeting.entityId, status: 'live' } })
+    if (priorText !== undefined) {
+      repository.execute(actor, { idempotencyKey: crypto.randomUUID(), type: 'meeting.transcript.append', expectedVersion: 2, payload: { id: meeting.entityId, text: priorText } })
+    }
     const path = join(directory, `${meeting.entityId}.webm`)
     await writeFile(path, 'audio')
     const ticket = repository.createUploadTicket(actor, { meetingId: meeting.entityId, contentType: 'audio/webm', size: 5, clientSegmentId: crypto.randomUUID() })
@@ -43,5 +46,12 @@ describe('转写 worker', () => {
     expect(repository.transcription(repository.authenticate('worker-token'), item.id)).toMatchObject({ state: 'failed', error: '转写服务不可用' })
     await expect(access(item.path)).rejects.toThrow()
     expect(await processNextTranscription(repository, { transcribe: async () => '' })).toBe(false)
+  })
+
+  it('把同一会议最近的转录作为下一段识别提示词', async () => {
+    const item = await job('项目代号天枢，负责人是张三。')
+    const transcribe = vi.fn(async () => '继续确认发布时间。')
+    await processNextTranscription(repository, { transcribe })
+    expect(transcribe).toHaveBeenCalledWith(item.path, undefined, '项目代号天枢，负责人是张三。')
   })
 })

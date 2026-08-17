@@ -59,4 +59,24 @@ describe('FlowboardController', () => {
     await vi.advanceTimersByTimeAsync(1_000)
     await vi.waitFor(() => expect(calls).toBe(2))
   })
+
+  it('把浏览器已截流音频交给 Host，并在转写完成后立即刷新文字稿', async () => {
+    const uploadAudio = vi.fn(async () => ok({ jobId: 'job-1' }))
+    const transcription = vi.fn(async () => ok({
+      id: 'job-1', meetingId: 'meeting-1', clientSegmentId: 'segment-1', state: 'completed',
+      text: '立即写入文字稿', utteranceSequence: 1, error: null, createdAt: '', updatedAt: '',
+    }))
+    const snapshotRemote = vi.fn(async () => ok(snapshot(2)))
+    const port = { snapshot: snapshotRemote, uploadAudio, transcription } as unknown as FlowboardRemotePort
+    const controller = new FlowboardController(new FlowboardRemoteClient(port))
+    controllers.push(controller)
+    const blob = { type: 'audio/wav', size: 3, arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer } as Blob
+
+    await expect(controller.uploadMeetingAudio('meeting-1', blob, 'segment-1')).resolves.toMatchObject({ state: 'completed', text: '立即写入文字稿' })
+    expect(uploadAudio).toHaveBeenCalledOnce()
+    expect(JSON.parse(uploadAudio.mock.calls[0]![0] as string)).toMatchObject({ meetingId: 'meeting-1', size: 3, clientSegmentId: 'segment-1' })
+    expect(uploadAudio.mock.calls[0]![1]).toBe('AQID')
+    expect(transcription).toHaveBeenCalledOnce()
+    expect(snapshotRemote).toHaveBeenCalledOnce()
+  })
 })
