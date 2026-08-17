@@ -26,22 +26,34 @@ export function useVadRecorder(options: VadRecorderOptions) {
   const speechAt = useRef(0)
   const noiseFloor = useRef(0.008)
   const calibrateUntil = useRef(0)
+  const pendingSegments = useRef(new Set<Promise<void>>())
 
-  const finishSegment = useCallback(() => {
+  const finishSegment = useCallback((): Promise<void> => {
     const chunks = segment.current
     const startedAt = segmentStartedAt.current
     const sampleRate = context.current?.sampleRate
     segment.current = null
     segmentStartedAt.current = null
     optionsRef.current.onState(false)
-    if (chunks === null || chunks.length === 0 || startedAt === null || sampleRate === undefined) return
+    if (chunks === null || chunks.length === 0 || startedAt === null || sampleRate === undefined) return Promise.resolve()
     const blob = new Blob([encodePcm16Wav(chunks, sampleRate)], { type: 'audio/wav' })
-    void optionsRef.current.onSegment(blob, new Date(startedAt).toISOString(), new Date().toISOString())
-      .catch(error => optionsRef.current.onError(error instanceof Error ? error.message : String(error)))
+    const task = optionsRef.current.onSegment(blob, new Date(startedAt).toISOString(), new Date().toISOString())
+      .catch(error => {
+        optionsRef.current.onError(error instanceof Error ? error.message : String(error))
+        throw error
+      })
+    pendingSegments.current.add(task)
+    void task.finally(() => pendingSegments.current.delete(task)).catch(() => undefined)
+    return task
   }, [])
 
+  const stopSegment = useCallback(async (): Promise<void> => {
+    await finishSegment()
+    await Promise.all([...pendingSegments.current])
+  }, [finishSegment])
+
   const release = useCallback(() => {
-    finishSegment()
+    void finishSegment().catch(() => undefined)
     processor.current?.disconnect()
     silentGain.current?.disconnect()
     processor.current = null
@@ -85,7 +97,7 @@ export function useVadRecorder(options: VadRecorderOptions) {
 
     segment.current.push(chunk)
     if (rms > threshold) speechAt.current = now
-    if (now - speechAt.current > SILENCE_MS || now - (segmentStartedAt.current ?? now) >= MAX_SEGMENT_MS) finishSegment()
+    if (now - speechAt.current > SILENCE_MS || now - (segmentStartedAt.current ?? now) >= MAX_SEGMENT_MS) void finishSegment().catch(() => undefined)
   }, [finishSegment])
 
   const start = useCallback(async () => {
@@ -119,5 +131,5 @@ export function useVadRecorder(options: VadRecorderOptions) {
     return release
   }, [options.active, release, start])
 
-  return { stopSegment: finishSegment }
+  return { stopSegment }
 }

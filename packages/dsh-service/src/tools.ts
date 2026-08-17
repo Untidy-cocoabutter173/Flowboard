@@ -67,6 +67,95 @@ export function registerFlowboardTools(ctx: Context, client: FlowboardHttpClient
   }))
 
   ctx.tools.register(defineTool({
+    name: 'flowboard_observe_meeting',
+    description: '读取一场会议的完整转录、Supervisor 水位、意图账本、关联项目与人员。会议分析必须以此完整快照为依据。',
+    parameters: { meeting_id: { type: 'string', required: true } },
+    output: jsonOutput,
+    isConcurrencySafe: () => true,
+    execute: async (args, exec) => client.snapshot({ meetingId: args.meeting_id }, exec.signal),
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'flowboard_ack_meeting',
+    description: '确认 Supervisor 已完整分析到指定转录序号。只有在相关意图已新建、修订、废弃或进入澄清后调用。',
+    parameters: {
+      meeting_id: { type: 'string', required: true },
+      analyzed_sequence: { type: 'integer', required: true },
+    },
+    output: jsonOutput,
+    execute: async (args, exec) => command(client, {
+      idempotencyKey: key(exec.callId, 'meeting.agent.progress'),
+      type: 'meeting.agent.progress',
+      payload: { id: args.meeting_id, analyzedSequence: args.analyzed_sequence },
+    }, exec.signal),
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'flowboard_upsert_meeting_intent',
+    description: '按稳定 intent_key 新建或修订会议意图。遇到“张三，不对，李四”等纠正时必须更新同一意图，不得创建重复任务。',
+    parameters: {
+      meeting_id: { type: 'string', required: true }, intent_key: { type: 'string', required: true },
+      kind: { type: 'string', enum: ['task', 'document', 'decision', 'risk', 'note'], required: true },
+      title: { type: 'string', required: true }, summary: { type: 'string' }, content: { type: 'string' },
+      project_id: { type: 'string' }, project_ids: { type: 'array', items: { type: 'string' } },
+      assignee_id: { type: 'string' }, due_at: { type: 'string' }, priority: { type: 'string', enum: ['low', 'medium', 'high', 'urgent'] },
+      evidence_from_sequence: { type: 'integer', required: true }, evidence_to_sequence: { type: 'integer', required: true },
+    },
+    output: jsonOutput,
+    execute: async (args, exec) => command(client, {
+      idempotencyKey: key(exec.callId, 'meeting.intent.upsert'), type: 'meeting.intent.upsert',
+      payload: {
+        meetingId: args.meeting_id, intentKey: args.intent_key, kind: args.kind,
+        payload: {
+          title: args.title,
+          ...(args.summary === undefined ? {} : { summary: args.summary }),
+          ...(args.content === undefined ? {} : { content: args.content }),
+          ...(args.project_id === undefined ? {} : { projectId: args.project_id }),
+          ...(args.project_ids === undefined ? {} : { projectIds: args.project_ids }),
+          ...(args.assignee_id === undefined ? {} : { assigneeId: args.assignee_id }),
+          ...(args.due_at === undefined ? {} : { dueAt: args.due_at }),
+          ...(args.priority === undefined ? {} : { priority: args.priority }),
+        },
+        evidenceFromSequence: args.evidence_from_sequence,
+        evidenceToSequence: args.evidence_to_sequence,
+      },
+    }, exec.signal),
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'flowboard_set_meeting_intent_status',
+    description: '推进会议意图状态，并可关联 continuable Subagent。suggest 模式提交前必须设为 approved。',
+    parameters: {
+      intent_id: { type: 'string', required: true }, revision: { type: 'integer', required: true },
+      status: { type: 'string', enum: ['clarifying', 'approved', 'executing', 'superseded', 'rejected', 'failed'], required: true },
+      subagent_id: { type: 'string' }, error: { type: 'string' },
+    },
+    output: jsonOutput,
+    execute: async (args, exec) => command(client, {
+      idempotencyKey: key(exec.callId, 'meeting.intent.status'), type: 'meeting.intent.status',
+      payload: {
+        id: args.intent_id, revision: args.revision, status: args.status,
+        ...(args.subagent_id === undefined ? {} : { subagentId: args.subagent_id }),
+        ...(args.error === undefined ? {} : { error: args.error }),
+      },
+    }, exec.signal),
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'flowboard_commit_meeting_intent',
+    description: '以意图 revision 和最新完整转录 basis_sequence 原子提交意图。转录已推进时会拒绝旧提交，必须重新观察和修订。',
+    parameters: {
+      intent_id: { type: 'string', required: true }, revision: { type: 'integer', required: true },
+      basis_sequence: { type: 'integer', required: true },
+    },
+    output: jsonOutput,
+    execute: async (args, exec) => command(client, {
+      idempotencyKey: key(exec.callId, 'meeting.intent.commit'), type: 'meeting.intent.commit',
+      payload: { id: args.intent_id, revision: args.revision, basisSequence: args.basis_sequence },
+    }, exec.signal),
+  }))
+
+  ctx.tools.register(defineTool({
     name: 'flowboard_update_task',
     description: '使用乐观锁更新任务。先读取快照获得任务当前 expected_version。',
     parameters: {
@@ -124,22 +213,15 @@ export function registerFlowboardTools(ctx: Context, client: FlowboardHttpClient
 
   ctx.tools.register(defineTool({
     name: 'flowboard_finalize_meeting',
-    description: '完成会议整理：写入总结、决议、风险，并原子创建关联任务和资料，最后结束会议。',
+    description: '在所有转录和意图已收敛后写入最终总结并结束会议。任务、资料、决议和风险必须先通过会议意图提交。',
     parameters: {
       meeting_id: { type: 'string', required: true }, expected_version: { type: 'integer', required: true }, summary: { type: 'string', required: true },
-      decisions: { type: 'array', items: { type: 'string' } }, risks: { type: 'array', items: { type: 'string' } },
-      action_items: { type: 'array', items: { type: 'object', additionalProperties: true } },
-      documents: { type: 'array', items: { type: 'object', additionalProperties: true } },
     },
     output: jsonOutput,
     execute: async (args, exec) => command(client, {
       idempotencyKey: key(exec.callId, 'meeting.finalize'), type: 'meeting.finalize', expectedVersion: args.expected_version,
       payload: {
         id: args.meeting_id, summary: args.summary,
-        ...(args.decisions === undefined ? {} : { decisions: args.decisions }),
-        ...(args.risks === undefined ? {} : { risks: args.risks }),
-        ...(args.action_items === undefined ? {} : { actionItems: args.action_items as never }),
-        ...(args.documents === undefined ? {} : { documents: args.documents as never }),
       },
     }, exec.signal),
   }))

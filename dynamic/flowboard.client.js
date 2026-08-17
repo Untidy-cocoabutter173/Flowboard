@@ -6,6 +6,7 @@ return {
     let state = { loading: true, data: null, route: 'home', projectId: null, projectTab: 'overview', taskGroup: 'none', selectedPersonId: null, meetingId: null, modal: null, candidate: '', recording: false, uploading: false, awaiting: false, error: null }
     const listeners = new Set()
     let serial = 0
+    let activeSessionId = null
     function emit(patch) { state = Object.assign({}, state, patch); listeners.forEach(function (fn) { try { fn() } catch (_error) {} }) }
     function subscribe(fn) { listeners.add(fn); return function () { listeners.delete(fn) } }
     function useStateStore() { const pair = React.useState(state); React.useEffect(function () { return subscribe(function () { pair[1](state) }) }, []); return pair[0] }
@@ -31,7 +32,7 @@ return {
     function localDateTime(value) { if (!value) return ''; const date = new Date(value); return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16) }
     function customValue(task, key, value) { const customData = Object.assign({}, task.customData || {}); customData[key] = value; return command('task.update', { id: task.id, customData: customData }, task.version) }
     function fieldTypeLabel(type) { return ({ text: '文本', number: '数字', boolean: '勾选', date: '日期', select: '单选', multi_select: '多选', person: '人员' })[type] || type }
-    function startMeeting(meeting) { return command('meeting.update', { id: meeting.id, status: 'live' }, meeting.version).then(function () { emit({ meetingId: meeting.id, route: 'meetings', recording: true }) }) }
+    function startMeeting(meeting) { return command('meeting.update', { id: meeting.id, status: 'live' }, meeting.version).then(function () { if (!activeSessionId) throw new Error('当前 DSH Session 不可用'); return command('meeting.agent.bind', { id: meeting.id, sessionId: activeSessionId }) }).then(function () { emit({ meetingId: meeting.id, route: 'meetings', recording: true }) }) }
     refresh()
 
     styles.insert('.fbd{--bd:#e4e5e7;--mut:#65676d;--cap:#898c93;--lay:#f7f7f8;--hov:rgba(30,35,45,.06);--act:rgba(30,35,45,.1);--accent:#4d6bfe;--danger:#d54941;height:100%;min-height:680px;display:grid;grid-template-columns:230px minmax(0,1fr);background:var(--dsw-alias-bg-base,#fff);color:var(--dsw-alias-label-primary,#202124);font:13px/1.45 system-ui;letter-spacing:0}.fbd *{box-sizing:border-box;letter-spacing:0}.fbd button,.fbd input,.fbd select,.fbd textarea{font:inherit}.fbd-side{overflow:auto;border-right:1px solid var(--bd);background:var(--dsw-alias-bg-layer-1,var(--lay));padding:10px 8px 24px}.fbd-brand{padding:5px 9px 15px;font-size:16px;font-weight:700}.fbd-brand small{display:block;color:var(--cap);font-size:10px;font-weight:400}.fbd-side button{width:100%;min-height:30px;border:0;border-radius:5px;padding:5px 9px;background:transparent;color:var(--mut);text-align:left;cursor:pointer}.fbd-side button:hover,.fbd-side button[data-on=true]{background:var(--act);color:inherit}.fbd-nav-title{display:block;padding:12px 9px 4px;color:var(--cap);font-size:10px;font-weight:700}.fbd-project{margin:2px 0 8px}.fbd-project>button{font-weight:650}.fbd-project>div{display:grid;grid-template-columns:repeat(2,1fr);padding-left:15px}.fbd-project>div button{min-height:25px;padding:3px 7px;font-size:10px}.fbd-main{min-width:0;overflow:auto;padding:24px clamp(16px,3vw,38px) 48px}.fbd-head{min-height:42px;display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:20px}.fbd-head h2{margin:0;font-size:20px}.fbd-head p{margin:2px 0 0;color:var(--cap);font-size:11px}')
@@ -170,7 +171,8 @@ return {
     }
     function ProjectHeader(current, data, project) { return el(React.Fragment, null, el('header', { className: 'fbd-project-head' }, el('div', { className: 'fbd-project-id' }, el('span', { className: 'fbd-project-mark', style: { '--project': project && project.color } }, project ? project.name.slice(0, 1).toUpperCase() : 'F'), el('div', null, el('span', null, project ? project.key : 'WORKSPACE'), el('h1', null, project ? project.name : '项目管理'))), el('span', { className: 'fbd-sync' }, '已同步 · ' + data.actor.name)), project ? el('nav', { className: 'fbd-tabs' }, tabs.map(function (tab) { return el('button', { key: tab[0], 'data-on': current.projectTab === tab[0], onClick: function () { emit({ route: 'project', projectId: project.id, projectTab: tab[0] }) } }, tab[1]) })) : null) }
 
-    function App() {
+    function App(props) {
+      activeSessionId = String(props.sessionId)
       const current = useStateStore(); const data = current.data
       if (!data) return el('div', { className: 'fbd-main' }, current.error || '正在连接 Flowboard')
       const project = projectOf(data, current.projectId); let body
@@ -188,7 +190,7 @@ return {
     }
 
     function blob64(blob) { return new Promise(function (resolve, reject) { const reader = new FileReader(); reader.onload = function () { resolve(String(reader.result || '').split(',')[1] || '') }; reader.onerror = reject; reader.readAsDataURL(blob) }) }
-    let media = null; let audioContext = null; let processor = null; let silentGain = null; let segmentChunks = null; let segmentStartedAt = null; let preChunks = []; let preCount = 0; let vadCancel = null; let speechAt = 0; let noiseFloor = 0.008; let calibrateUntil = 0; let inputActions = null; let silenceCancel = null
+    let media = null; let audioContext = null; let processor = null; let silentGain = null; let segmentChunks = null; let segmentStartedAt = null; let preChunks = []; let preCount = 0; let vadCancel = null; let speechAt = 0; let noiseFloor = 0.008; let calibrateUntil = 0; const pendingSegments = new Set()
     function wavBuffer(chunks, inputRate) {
       let inputLength = 0
       chunks.forEach(function (chunk) { inputLength += chunk.length })
@@ -211,10 +213,10 @@ return {
       try {
         const accepted = await host.call('transcribeSegment', { meetingId: state.meetingId, clientSegmentId: 'dyn-' + Date.now(), contentType: blob.type, base64: await blob64(blob), startedAt: new Date(startedAt).toISOString(), endedAt: new Date().toISOString() })
         const completed = await waitTranscription(accepted.jobId); const text = completed.text
-        if (text) { const candidate = state.candidate ? state.candidate + '\n' + text : text; emit({ candidate: candidate, awaiting: false }); if (inputActions) inputActions.setDraft(candidate); if (silenceCancel) silenceCancel(); silenceCancel = ctx.timer.timeout(function () { if (inputActions && state.candidate) { emit({ awaiting: true }); inputActions.submit() } }, 4000) }
+        if (text) emit({ candidate: text })
       } catch (error) { fail(error) } finally { emit({ uploading: false }) }
     }
-    function stopRecorder() { const chunks = segmentChunks; const startedAt = segmentStartedAt; segmentChunks = null; segmentStartedAt = null; if (chunks && chunks.length && startedAt) sendSegment(chunks, startedAt).catch(fail) }
+    function stopRecorder() { const chunks = segmentChunks; const startedAt = segmentStartedAt; segmentChunks = null; segmentStartedAt = null; if (chunks && chunks.length && startedAt) { const task = sendSegment(chunks, startedAt); pendingSegments.add(task); task.finally(function () { pendingSegments.delete(task) }).catch(function () {}) } return Promise.all(Array.from(pendingSegments)) }
     async function beginAudio() {
       if (media) return
       media = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } }); audioContext = new AudioContext(); const source = audioContext.createMediaStreamSource(media); processor = audioContext.createScriptProcessor(4096, 1, 1); silentGain = audioContext.createGain(); silentGain.gain.value = 0; calibrateUntil = Date.now() + 700
@@ -222,12 +224,12 @@ return {
         const chunk = event.inputBuffer.getChannelData(0).slice(); let sum = 0; for (let index = 0; index < chunk.length; index++) sum += chunk[index] * chunk[index]
         const rms = Math.sqrt(sum / chunk.length); const now = Date.now(); if (now < calibrateUntil) noiseFloor = Math.max(noiseFloor, rms); const threshold = Math.max(0.012, noiseFloor * 2.8)
         if (!segmentChunks) { preChunks.push(chunk); preCount += chunk.length; while (preCount > audioContext.sampleRate * 0.35 && preChunks.length > 1) preCount -= preChunks.shift().length; if (rms > threshold) { speechAt = now; segmentChunks = preChunks; segmentStartedAt = now - preCount / audioContext.sampleRate * 1000; preChunks = []; preCount = 0 } return }
-        segmentChunks.push(chunk); if (rms > threshold) speechAt = now; if (now - speechAt > 800 || now - segmentStartedAt >= 15000) stopRecorder()
+        segmentChunks.push(chunk); if (rms > threshold) speechAt = now; if (now - speechAt > 800 || now - segmentStartedAt >= 15000) stopRecorder().catch(fail)
       }
       source.connect(processor); processor.connect(silentGain); silentGain.connect(audioContext.destination)
       vadCancel = function () { if (processor) processor.disconnect(); if (silentGain) silentGain.disconnect(); if (audioContext) audioContext.close().catch(function () {}); processor = null; silentGain = null; audioContext = null; preChunks = []; preCount = 0 }
     }
-    function Dock(props) { const current = useStateStore(); inputActions = props.inputActions; React.useEffect(function () { if (current.meetingId && current.recording) beginAudio().catch(fail); return function () {} }, [current.meetingId, current.recording]); React.useEffect(function () { if (current.awaiting && props.input.draft === '' && props.input.phase === 'plain') emit({ candidate: '', awaiting: false }) }, [current.awaiting, props.input.draft, props.input.phase]); if (!current.meetingId) return null; return el('div', { className: 'fbd-dock' }, el('span', { className: 'fbd-live' }, current.recording ? 'AI 秘书在线' : '会议整理中'), el('strong', null, current.uploading ? '正在转写' : '实时转录'), el('span', { className: 'fbd-draft' }, current.candidate || '转录内容将在输入框待命'), el('button', { onClick: function () { const meeting = current.data.meetings.find(function (item) { return item.id === current.meetingId }); stopRecorder(); if (vadCancel) vadCancel(); if (media) media.getTracks().forEach(function (track) { track.stop() }); media = null; emit({ recording: false }); if (meeting) command('meeting.update', { id: meeting.id, status: 'finalizing' }, meeting.version).then(function () { const message = '会议 ' + meeting.id + ' 已结束，请调用 flowboard_snapshot 后使用 flowboard_finalize_meeting 完成整理。'; props.inputActions.setDraft(message); props.inputActions.submit() }) } }, '停止')) }
+    function Dock(props) { const current = useStateStore(); activeSessionId = String(props.sessionId); React.useEffect(function () { if (current.meetingId && current.recording) beginAudio().catch(fail); return function () {} }, [current.meetingId, current.recording]); if (!current.meetingId) return null; const binding = (current.data.meetingAgentBindings || []).find(function (item) { return item.meetingId === current.meetingId && item.sessionId === activeSessionId }); const intents = (current.data.meetingIntents || []).filter(function (item) { return item.meetingId === current.meetingId && ['applied', 'superseded', 'rejected'].indexOf(item.status) < 0 }).length; return el('div', { className: 'fbd-dock' }, el('span', { className: 'fbd-live' }, current.recording ? 'AI 秘书在线' : '会议整理中'), el('strong', null, current.uploading ? '正在转写' : '实时转录'), el('span', { className: 'fbd-draft' }, current.candidate || '转录只写入会议稿，由 Supervisor 统一分析'), el('span', null, '已分析 ' + (binding ? binding.analyzedSequence : 0) + '/' + (binding ? binding.deliveredSequence : 0) + (intents ? ' · ' + intents + ' 个意图' : '')), el('button', { onClick: function () { const draining = stopRecorder(); if (vadCancel) vadCancel(); if (media) media.getTracks().forEach(function (track) { track.stop() }); media = null; emit({ recording: false, uploading: true }); draining.then(refresh).then(function (data) { const meeting = data.meetings.find(function (item) { return item.id === current.meetingId }); if (meeting) return command('meeting.update', { id: meeting.id, status: 'finalizing' }, meeting.version) }).catch(fail).finally(function () { emit({ uploading: false }) }) } }, '停止')) }
     slots.inject('conversation.view', function () { return slots.register({ name: 'conversation.view', id: 'flowboard-dynamic', order: 21, label: 'Flowboard 动态' }, App) })
     slots.inject('conversation.input.dock', function () { return slots.register({ name: 'conversation.input.dock', id: 'flowboard-dynamic-meeting', order: 31, label: 'Flowboard 会议' }, Dock) })
   },

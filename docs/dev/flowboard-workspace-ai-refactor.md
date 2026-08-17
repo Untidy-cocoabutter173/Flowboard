@@ -161,13 +161,13 @@ scheduled -> live -> finalizing -> ended
 ```mermaid
 sequenceDiagram
   participant Browser as DSH Browser
-  participant Composer as DSH Composer
   participant Host as Flowboard Host
   participant API as Flowboard API
   participant Worker as ASR Worker
-  participant AI as DSH Agent
+  participant Coordinator as MeetingCoordinator
+  participant AI as DSH Supervisor
 
-  Browser->>Host: meeting.create / meeting.update(live)
+  Browser->>Host: meeting.update(live) + meeting.agent.bind(sessionId)
   Browser->>Browser: 麦克风常开，VAD 分段
   Browser->>Host: 创建上传票据并上传音频
   Host-->>Browser: jobId（不阻塞等待转写）
@@ -177,17 +177,16 @@ sequenceDiagram
   end
   Worker->>API: utterance + transcript + change cursor
   Host-->>Browser: completed text
-  Browser->>Composer: setDraft(新增候选转录)
-  Browser->>Composer: 静音达到 silenceSec 后 submit()
-  Composer->>AI: 会议增量与当前会话上下文
-  AI->>Host: 创建任务/资料或记录操作
-  Host->>API: callId 幂等命令
+  Coordinator->>API: 读取完整转录、绑定水位和意图账本
+  Coordinator->>AI: running=steer / idle=followup / pending=replace
+  AI->>Host: upsert/status/commit intent + ack
+  Host->>API: revision + basisSequence 幂等事务
   Browser->>API: meeting.update(finalizing)
   AI->>Host: flowboard_finalize_meeting
-  Host->>API: 总结、决议、风险、任务、资料、ended
+  Host->>API: 最终总结 + ended（其他产物已由 intent 提交）
 ```
 
-动态 Host 的音频上传调用只返回 `jobId`，转写状态通过独立短调用轮询，避免将上传、排队和 ASR 完成塞进一次 `host.call` 导致 `transcription timed out`。静态 Client 同样保持上传与轮询分离。
+动态 Host 的音频上传调用只返回 `jobId`，转写状态通过独立短调用轮询，避免将上传、排队和 ASR 完成塞进一次 `host.call` 导致 `transcription timed out`。静态与动态 Client 都只展示转写结果，不再写入或提交 Composer。
 
 ### 6.2 AI 参与模式
 
@@ -214,8 +213,8 @@ AI 不可自动执行：删除实体、修改成员权限、修改团队结构�
 - Base64 上传大小扣除末尾填充，票据字节数与实际 PUT 一致。
 - `clientSegmentId` 保证重复上传幂等。
 - 每段转录独立进入任务队列，慢 ASR 不阻塞 Host RPC。
-- 候选稿在提交失败时保留；只有 composer 回到 `plain + draft=''` 才确认消费。
-- 会议停止后先排空最后分段，再进入 `finalizing`。
+- MeetingCoordinator 合并未消费通知，Supervisor 忙碌时在下一 Step 接收 steering，不等待上一 Turn 完成。
+- `meeting.finalize` 在转写仍执行、分析水位落后或存在未决意图时拒绝结束。
 
 ## 七、统一视觉与交互系统
 
@@ -260,14 +259,14 @@ AI 不可自动执行：删除实体、修改成员权限、修改团队结构�
 
 | 模块 | 代码位置 | 职责 |
 | --- | --- | --- |
-| Contracts | `packages/contracts/src/index.ts` | v2 DTO、命令联合类型、Zod 校验与上传限制 |
-| Static Client | `packages/dsh-client/src/client` | 导航、人物视角、Jira/表格、会议录音、composer 协调 |
-| Static Host | `packages/dsh-service/src` | HTTP Client、Typert Remote、Agent 工具及内嵌 API/Worker 生命周期 |
+| Contracts | `packages/contracts/src/index.ts` | v3 DTO、会议意图命令、Zod 校验与上传限制 |
+| Static Client | `packages/dsh-client/src/client` | 导航、人物视角、Jira/表格、会议录音与 Supervisor Dock |
+| Static Host | `packages/dsh-service/src` | HTTP Client、Typert Remote、MeetingCoordinator、Agent 工具及内嵌 API/Worker 生命周期 |
 | Dynamic Plugin | `dynamic/*.js` | 实验性纯 JavaScript Host/Client |
 | HTTP API | `packages/server/src/application.ts` | 认证入口、路由、统一错误、上传接收 |
 | Repository | `packages/server/src/repository.ts` | 授权、事务、幂等、乐观锁、审计、版本和游标 |
 | Worker | `packages/server/src/worker.ts` | 领取转写任务、调用 ASR、写入 utterance、清理音频 |
-| Database | `packages/server/src/database.ts` | SQLite v2 schema 与开发种子 |
+| Database | `packages/server/src/database.ts` | SQLite v3 schema、会议绑定/意图账本与开发种子 |
 
 SQLite 是当前本地和小团队部署的事实源；本轮不虚构 PostgreSQL adapter。浏览器永远不读取 API Token，浏览器 Remote 和 Agent Tool 必须进入同一个 `FlowboardService` 与 Repository 写入口。
 
@@ -280,7 +279,7 @@ SQLite 是当前本地和小团队部署的事实源；本轮不虚构 PostgreSQ
 - [x] 自定义字段及结构化单选、多选、人员、日期编辑器
 - [x] 团队、人员、项目成员和角色权限管理 UI
 - [x] 任务、会议和资料 Markdown 打开、编辑与关联
-- [x] AI 会议实时分段、候选稿、自动提交、总结与审计
+- [x] AI 会议实时分段、长期 Supervisor、意图账本、Steering、总结与审计
 - [x] 动态 Host 转写任务短轮询，不再出现同步调用超时
 - [x] 静态插件改为默认开发与发布形态
 - [x] 一键开发脚本，不重装插件

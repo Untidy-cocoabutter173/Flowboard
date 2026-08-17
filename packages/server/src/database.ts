@@ -3,7 +3,7 @@ import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 
-export const SCHEMA_VERSION = 2
+export const SCHEMA_VERSION = 3
 
 export interface DatabaseOptions {
   path: string
@@ -21,13 +21,13 @@ export function openDatabase(options: DatabaseOptions): DatabaseSync {
   db.exec('PRAGMA journal_mode = WAL')
   db.exec('PRAGMA foreign_keys = ON')
   db.exec('PRAGMA busy_timeout = 5000')
-  assertFreshOrV2(db)
+  assertFreshOrV3(db)
   createSchema(db)
   seed(db, options)
   return db
 }
 
-function assertFreshOrV2(db: DatabaseSync): void {
+function assertFreshOrV3(db: DatabaseSync): void {
   const table = db.prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name='schema_migrations'`).get()
   if (table === undefined) return
   const row = db.prepare('SELECT MAX(version) AS version FROM schema_migrations').get() as { version?: number | null }
@@ -125,6 +125,24 @@ function createSchema(db: DatabaseSync): void {
       summary TEXT NOT NULL, entity_type TEXT, entity_id TEXT, ok INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL,
       UNIQUE(meeting_id,call_id)
     );
+    CREATE TABLE IF NOT EXISTS meeting_agent_bindings (
+      meeting_id TEXT PRIMARY KEY REFERENCES meetings(id), session_id TEXT NOT NULL,
+      state TEXT NOT NULL CHECK(state IN ('active','closed')), delivered_sequence INTEGER NOT NULL DEFAULT 0,
+      analyzed_sequence INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+      CHECK(delivered_sequence >= 0), CHECK(analyzed_sequence >= 0), CHECK(analyzed_sequence <= delivered_sequence)
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS meeting_agent_bindings_active_session
+      ON meeting_agent_bindings(session_id) WHERE state='active';
+    CREATE TABLE IF NOT EXISTS meeting_intents (
+      id TEXT PRIMARY KEY, meeting_id TEXT NOT NULL REFERENCES meetings(id), intent_key TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK(kind IN ('task','document','decision','risk','note')),
+      status TEXT NOT NULL CHECK(status IN ('detected','clarifying','approved','executing','applied','superseded','rejected','failed')),
+      payload_json TEXT NOT NULL, evidence_from_sequence INTEGER NOT NULL, evidence_to_sequence INTEGER NOT NULL,
+      revision INTEGER NOT NULL DEFAULT 1, subagent_id TEXT, entity_type TEXT, entity_id TEXT, error TEXT,
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(meeting_id,intent_key),
+      CHECK(evidence_from_sequence > 0), CHECK(evidence_to_sequence >= evidence_from_sequence), CHECK(revision > 0)
+    );
+    CREATE INDEX IF NOT EXISTS meeting_intents_status ON meeting_intents(meeting_id,status,updated_at);
     CREATE TABLE IF NOT EXISTS library_items (
       id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL REFERENCES tenants(id), team_id TEXT NOT NULL REFERENCES teams(id),
       type TEXT NOT NULL CHECK(type IN ('doc','link')), title TEXT NOT NULL, content TEXT NOT NULL DEFAULT '', url TEXT,
@@ -184,7 +202,7 @@ function createSchema(db: DatabaseSync): void {
       state TEXT NOT NULL CHECK(state IN ('pending','processing','completed','failed')), text TEXT, utterance_sequence INTEGER,
       error TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(meeting_id,client_segment_id)
     );
-    INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES(2,datetime('now'));
+    INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES(3,datetime('now'));
   `)
 }
 

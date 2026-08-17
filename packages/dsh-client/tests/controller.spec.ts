@@ -5,9 +5,9 @@ import { FlowboardController } from '../src/client/controller.ts'
 import { FlowboardRemoteClient, type FlowboardRemotePort } from '../src/client/remote.ts'
 
 const snapshot = (cursor: number): FlowboardSnapshot => ({
-  apiVersion: 2, cursor,
+  apiVersion: 3, cursor,
   actor: { id: 'user-1', tenantId: 'tenant-1', name: '用户', email: null },
-  teams: [], teamMembers: [], people: [], projectMembers: [], workflowStatuses: [], fieldDefinitions: [], savedViews: [], categories: [], tasks: [], meetings: [], utterances: [], aiActions: [], library: [], events: [], links: { projectMeetings: [], projectLibrary: [], meetingLibrary: [], taskMeetings: [], taskLibrary: [] },
+  teams: [], teamMembers: [], people: [], projectMembers: [], workflowStatuses: [], fieldDefinitions: [], savedViews: [], categories: [], tasks: [], meetings: [], utterances: [], aiActions: [], meetingAgentBindings: [], meetingIntents: [], library: [], events: [], links: { projectMeetings: [], projectLibrary: [], meetingLibrary: [], taskMeetings: [], taskLibrary: [] },
   projects: [{ id: 'project-1', tenantId: 'tenant-1', teamId: 'team-1', parentId: null, key: 'FLOW', name: '项目', description: '', color: '#4D6BFE', role: 'owner', version: 1, createdAt: '', updatedAt: '' }],
 })
 const ok = (value: unknown) => ({ ok: true, value: JSON.stringify(value) })

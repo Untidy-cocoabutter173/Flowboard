@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-export const API_VERSION = 2 as const
+export const API_VERSION = 3 as const
 export const MAX_UPLOAD_BYTES = 16 * 1024 * 1024
 
 export type AccessRole = 'owner' | 'admin' | 'member' | 'viewer'
@@ -8,6 +8,9 @@ export type Priority = 'low' | 'medium' | 'high' | 'urgent'
 export type MeetingStatus = 'scheduled' | 'live' | 'finalizing' | 'ended' | 'cancelled'
 export type AutomationLevel = 'record' | 'suggest' | 'execute'
 export type FeedbackMode = 'silent' | 'activity'
+export type MeetingAgentBindingState = 'active' | 'closed'
+export type MeetingIntentKind = 'task' | 'document' | 'decision' | 'risk' | 'note'
+export type MeetingIntentStatus = 'detected' | 'clarifying' | 'approved' | 'executing' | 'applied' | 'superseded' | 'rejected' | 'failed'
 export type LibraryItemType = 'doc' | 'link'
 export type CalendarEventType = 'meeting' | 'deadline' | 'event' | 'reminder'
 export type SavedViewType = 'board' | 'table' | 'calendar'
@@ -178,6 +181,45 @@ export interface MeetingAiActionView {
   createdAt: string
 }
 
+export interface MeetingAgentBindingView {
+  meetingId: string
+  sessionId: string
+  state: MeetingAgentBindingState
+  deliveredSequence: number
+  analyzedSequence: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface MeetingIntentPayload {
+  projectId?: string
+  projectIds?: string[]
+  title: string
+  summary?: string
+  content?: string
+  assigneeId?: string
+  dueAt?: string
+  priority?: Priority
+}
+
+export interface MeetingIntentView {
+  id: string
+  meetingId: string
+  intentKey: string
+  kind: MeetingIntentKind
+  status: MeetingIntentStatus
+  payload: MeetingIntentPayload
+  evidenceFromSequence: number
+  evidenceToSequence: number
+  revision: number
+  subagentId: string | null
+  entityType: string | null
+  entityId: string | null
+  error: string | null
+  createdAt: string
+  updatedAt: string
+}
+
 export interface LibraryItemView {
   id: string
   tenantId: string
@@ -244,6 +286,8 @@ export interface FlowboardSnapshot {
   meetings: MeetingView[]
   utterances: MeetingUtteranceView[]
   aiActions: MeetingAiActionView[]
+  meetingAgentBindings: MeetingAgentBindingView[]
+  meetingIntents: MeetingIntentView[]
   library: LibraryItemView[]
   events: CalendarEventView[]
   links: ResourceLinks
@@ -270,23 +314,6 @@ export interface CommandEnvelope<Type extends string, Payload> {
   type: Type
   payload: Payload
   expectedVersion?: number
-}
-
-export interface FinalizeActionItem {
-  key: string
-  projectId: string
-  title: string
-  summary?: string
-  assigneeId?: string
-  dueAt?: string
-  priority?: Priority
-}
-
-export interface FinalizeDocument {
-  key: string
-  title: string
-  content: string
-  projectIds: string[]
 }
 
 export type CommandRequest =
@@ -323,7 +350,12 @@ export type CommandRequest =
   | CommandEnvelope<'meeting.delete', { id: string }>
   | CommandEnvelope<'meeting.transcript.append', { id: string; text: string; speakerId?: string; clientSegmentId?: string; startedAt?: string; endedAt?: string }>
   | CommandEnvelope<'meeting.action.append', { id: string; callId?: string; kind: MeetingAiActionView['kind']; summary: string; entityType?: string; entityId?: string; ok?: boolean }>
-  | CommandEnvelope<'meeting.finalize', { id: string; summary: string; decisions?: string[]; risks?: string[]; actionItems?: FinalizeActionItem[]; documents?: FinalizeDocument[] }>
+  | CommandEnvelope<'meeting.agent.bind', { id: string; sessionId: string }>
+  | CommandEnvelope<'meeting.agent.progress', { id: string; deliveredSequence?: number; analyzedSequence?: number }>
+  | CommandEnvelope<'meeting.intent.upsert', { meetingId: string; intentKey: string; kind: MeetingIntentKind; payload: MeetingIntentPayload; evidenceFromSequence: number; evidenceToSequence: number }>
+  | CommandEnvelope<'meeting.intent.status', { id: string; revision: number; status: Extract<MeetingIntentStatus, 'clarifying' | 'approved' | 'executing' | 'superseded' | 'rejected' | 'failed'>; subagentId?: string; error?: string }>
+  | CommandEnvelope<'meeting.intent.commit', { id: string; revision: number; basisSequence: number }>
+  | CommandEnvelope<'meeting.finalize', { id: string; summary: string }>
   | CommandEnvelope<'library.create', { teamId: string; projectIds: string[]; type: LibraryItemType; title: string; content?: string; url?: string; categoryId?: string; sourceMeetingId?: string }>
   | CommandEnvelope<'library.update', { id: string; projectIds?: string[]; title?: string; content?: string; url?: string | null; categoryId?: string | null }>
   | CommandEnvelope<'library.delete', { id: string }>
@@ -358,6 +390,8 @@ const color = z.string().regex(/^#[0-9a-fA-F]{6}$/)
 const role = z.enum(['owner', 'admin', 'member', 'viewer'])
 const priority = z.enum(['low', 'medium', 'high', 'urgent'])
 const meetingStatus = z.enum(['scheduled', 'live', 'finalizing', 'ended', 'cancelled'])
+const meetingIntentKind = z.enum(['task', 'document', 'decision', 'risk', 'note'])
+const meetingIntentStatus = z.enum(['clarifying', 'approved', 'executing', 'superseded', 'rejected', 'failed'])
 const automation = z.enum(['record', 'suggest', 'execute'])
 const feedback = z.enum(['silent', 'activity'])
 const eventType = z.enum(['meeting', 'deadline', 'event', 'reminder'])
@@ -371,6 +405,16 @@ const customData = z.record(z.string().min(1).max(120), z.union([scalar, z.array
 const settings = z.object({ automation, feedback, answerQuestions: z.boolean(), silenceSec: z.number().min(1).max(30) })
 const partialSettings = settings.partial()
 const idList = z.array(id).max(100)
+const meetingIntentPayload = z.object({
+  projectId: id.optional(),
+  projectIds: idList.min(1).optional(),
+  title: shortText,
+  summary: text.optional(),
+  content: text.optional(),
+  assigneeId: id.optional(),
+  dueAt: dateTime.optional(),
+  priority: priority.optional(),
+})
 const envelope = <T extends string, S extends z.ZodType>(type: T, payload: S) => z.object({ idempotencyKey: z.string().min(4).max(200), type: z.literal(type), payload, expectedVersion: z.number().int().positive().optional() })
 
 export const snapshotRequestSchema: z.ZodType<SnapshotRequest> = z.object({ projectId: id.optional(), meetingId: id.optional(), compact: z.boolean().optional() })
@@ -399,7 +443,12 @@ export const commandRequestSchema: z.ZodType<CommandRequest> = z.discriminatedUn
   envelope('meeting.create', z.object({ teamId: id, projectIds: idList.min(1), title: shortText, settings: partialSettings.optional() })), envelope('meeting.update', z.object({ id, title: shortText.optional(), status: meetingStatus.optional(), projectIds: idList.min(1).optional(), settings: partialSettings.optional(), transcript: text.optional(), summary: text.optional(), decisions: z.array(shortText).max(100).optional(), risks: z.array(shortText).max(100).optional() })), envelope('meeting.delete', z.object({ id })),
   envelope('meeting.transcript.append', z.object({ id, text: z.string().trim().min(1).max(200_000), speakerId: id.optional(), clientSegmentId: id.optional(), startedAt: dateTime.optional(), endedAt: dateTime.optional() })),
   envelope('meeting.action.append', z.object({ id, callId: id.optional(), kind: z.enum(['task', 'document', 'decision', 'note', 'finalize']), summary: shortText, entityType: shortText.optional(), entityId: id.optional(), ok: z.boolean().optional() })),
-  envelope('meeting.finalize', z.object({ id, summary: text, decisions: z.array(shortText).max(100).optional(), risks: z.array(shortText).max(100).optional(), actionItems: z.array(z.object({ key: id, projectId: id, title: shortText, summary: text.optional(), assigneeId: id.optional(), dueAt: dateTime.optional(), priority: priority.optional() })).max(100).optional(), documents: z.array(z.object({ key: id, title: shortText, content: text, projectIds: idList.min(1) })).max(100).optional() })),
+  envelope('meeting.agent.bind', z.object({ id, sessionId: id })),
+  envelope('meeting.agent.progress', z.object({ id, deliveredSequence: z.number().int().nonnegative().optional(), analyzedSequence: z.number().int().nonnegative().optional() })),
+  envelope('meeting.intent.upsert', z.object({ meetingId: id, intentKey: id, kind: meetingIntentKind, payload: meetingIntentPayload, evidenceFromSequence: z.number().int().positive(), evidenceToSequence: z.number().int().positive() })),
+  envelope('meeting.intent.status', z.object({ id, revision: z.number().int().positive(), status: meetingIntentStatus, subagentId: id.optional(), error: text.optional() })),
+  envelope('meeting.intent.commit', z.object({ id, revision: z.number().int().positive(), basisSequence: z.number().int().nonnegative() })),
+  envelope('meeting.finalize', z.object({ id, summary: text })),
   envelope('library.create', z.object({ teamId: id, projectIds: idList.min(1), type: itemType, title: shortText, content: text.optional(), url: text.optional(), categoryId: id.optional(), sourceMeetingId: id.optional() })), envelope('library.update', z.object({ id, projectIds: idList.min(1).optional(), title: shortText.optional(), content: text.optional(), url: text.nullable().optional(), categoryId: id.nullable().optional() })), envelope('library.delete', z.object({ id })), envelope('library.meeting.link', z.object({ libraryItemId: id, meetingId: id })),
   envelope('event.create', z.object({ projectId: id.optional(), type: eventType, title: shortText, startAt: dateTime, endAt: dateTime.optional(), allDay: z.boolean().optional(), ownerId: id.optional(), attendeeIds: idList.optional(), taskId: id.optional(), meetingId: id.optional() })), envelope('event.update', z.object({ id, projectId: id.nullable().optional(), type: eventType.optional(), title: shortText.optional(), startAt: dateTime.optional(), endAt: dateTime.nullable().optional(), allDay: z.boolean().optional(), ownerId: id.nullable().optional(), attendeeIds: idList.optional(), taskId: id.nullable().optional(), meetingId: id.nullable().optional() })), envelope('event.delete', z.object({ id })),
 ]) as z.ZodType<CommandRequest>

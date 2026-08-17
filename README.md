@@ -16,7 +16,7 @@ Flowboard 是面向 DeepSeek Harness（DSH）的 AI 工作空间。它把项目�
 - 任务详情、会议总结和项目资料可作为 Markdown 打开、编辑和预览。
 - 项目、会议、资料是显式多对多关系；任务归属一个主项目，并可关联多个会议和资料。
 - 我的任务、日历和个人看板跨项目聚合，不复制业务数据。
-- 首页可直接开始 AI 会议。浏览器使用 VAD 自动分段，转写持续写入 DSH composer，静音后自动提交给 AI。
+- 首页可直接开始 AI 会议。浏览器使用 VAD 自动分段，转录只写入会议稿；MeetingCoordinator 持续把完整上下文交给同一 Supervisor，并管理意图与后台 Subagent。
 - 会议结束进入 `finalizing`，AI 使用结构化工具写入总结、决议、风险、行动项、资料和操作记录，完成后进入 `ended`。
 
 ## 运行边界
@@ -40,10 +40,10 @@ PCM/WAV 分段 -> 一次性上传票据 -> 内嵌 Whisper Worker -> utterance
 
 | 包 | 职责 |
 | --- | --- |
-| `@flowboard/contracts` | API v2 DTO、命令联合类型和 Zod 校验 |
-| `@flowboard/server` | Fastify API、SQLite v2 仓储、上传、转写 Worker 和随包发布的 Whisper 运行时 |
+| `@flowboard/contracts` | API v3 DTO、会议意图命令联合类型和 Zod 校验 |
+| `@flowboard/server` | Fastify API、SQLite v3 仓储、上传、转写 Worker 和随包发布的 Whisper 运行时 |
 | `@flowboard/dsh-service` | Host HTTP Client、Typert Remote、细粒度 Agent 工具和内嵌服务生命周期 |
-| `@flowboard/dsh-client` | Ant Design 工作空间、Jira/多维表格、VAD 会议 owner 与 composer Dock |
+| `@flowboard/dsh-client` | Ant Design 工作空间、Jira/多维表格、VAD 会议 owner 与 Supervisor Dock |
 | `@flowboard/dsh` | 可安装的静态 DSH 组合包 |
 
 开发启动只有一条命令：

@@ -38,4 +38,15 @@ describe('Flowboard contracts', () => {
       clientSegmentId: 'segment-1',
     })).toThrow()
   })
+
+  it('accepts versioned meeting intent upsert and commit commands', () => {
+    expect(commandRequestSchema.parse({
+      idempotencyKey: 'meeting-intent-upsert', type: 'meeting.intent.upsert',
+      payload: { meetingId: 'meeting-1', intentKey: 'release-owner', kind: 'task', payload: { projectId: 'project-1', title: '发布检查', assigneeId: 'user-1' }, evidenceFromSequence: 1, evidenceToSequence: 2 },
+    }).type).toBe('meeting.intent.upsert')
+    expect(commandRequestSchema.parse({
+      idempotencyKey: 'meeting-intent-commit', type: 'meeting.intent.commit',
+      payload: { id: 'intent-1', revision: 2, basisSequence: 2 },
+    }).type).toBe('meeting.intent.commit')
+  })
 })

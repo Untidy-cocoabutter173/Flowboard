@@ -355,14 +355,16 @@ button.rowMain { display: flex; flex-direction: column; align-items: flex-start;
 .meetingDetail time { display: inline-block; min-width: 36px; color: var(--fb-caption); font-size: 10px; }
 .meetingDetail aside { padding-left: 24px; border-left: 1px solid var(--fb-border); }
 .meetingDetail aside h3:not(:first-child) { margin-top: 24px; }
+.intentStatus { display: inline-block; margin-right: 7px; padding: 1px 6px; border-radius: 4px; color: #4338ca; background: #ecebff; font-size: 10px; }
 .teamList { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .teamList article { min-height: 112px; display: flex; flex-direction: column; padding: 16px; border: 1px solid var(--fb-border); border-radius: 6px; }
 .teamList span { margin-top: 7px; color: var(--fb-muted); font-size: 12px; }
 .teamList small { margin-top: auto; color: var(--fb-caption); }
-.meetingDock { min-height: 42px; display: grid; grid-template-columns: 8px auto auto minmax(0, 1fr) auto auto; align-items: center; gap: 8px; border: 1px solid var(--dsw-alias-border-l2, #e4e5e7); border-radius: 6px; padding: 6px 9px; color: var(--dsw-alias-label-secondary, #65676d); background: var(--dsw-alias-bg-base, #fff); font-size: 11px; }
+.meetingDock { min-height: 42px; display: grid; grid-template-columns: 8px auto auto minmax(0, 1fr) auto auto auto; align-items: center; gap: 8px; border: 1px solid var(--dsw-alias-border-l2, #e4e5e7); border-radius: 6px; padding: 6px 9px; color: var(--dsw-alias-label-secondary, #65676d); background: var(--dsw-alias-bg-base, #fff); font-size: 11px; }
 .meetingDock strong { color: var(--dsw-alias-label-primary, #202124); white-space: nowrap; }
 .meetingDock p { min-width: 0; margin: 0; overflow: hidden; color: var(--dsw-alias-label-caption, #898c93); text-overflow: ellipsis; white-space: nowrap; }
 .meetingDock em { color: var(--dsw-alias-state-error-primary, #d54941); font-style: normal; }
+.meetingAgentProgress { padding-left: 8px; border-left: 1px solid var(--dsw-alias-border-l2, #e4e5e7); color: var(--dsw-alias-label-caption, #898c93); white-space: nowrap; }
 .liveDot, .finalizingDot { width: 7px; height: 7px; border-radius: 50%; background: var(--dsw-alias-state-success-primary, #2b8a5a); box-shadow: 0 0 0 3px color-mix(in srgb, var(--dsw-alias-state-success-primary, #2b8a5a) 12%, transparent); }
 .finalizingDot { background: var(--dsw-alias-state-warn-primary, #c58a18); }
 

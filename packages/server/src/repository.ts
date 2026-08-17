@@ -15,6 +15,10 @@ import {
   type JsonValue,
   type LibraryItemView,
   type MeetingAiActionView,
+  type MeetingAgentBindingView,
+  type MeetingIntentPayload,
+  type MeetingIntentStatus,
+  type MeetingIntentView,
   type MeetingSettings,
   type MeetingUtteranceView,
   type MeetingView,
@@ -128,6 +132,8 @@ export class SqliteFlowboardRepository {
     const utterances = request.meetingId === undefined ? [] : this.db.prepare('SELECT * FROM meeting_utterances WHERE meeting_id=? ORDER BY sequence').all(request.meetingId) as Row[]
     const actionMeetingIds = request.meetingId === undefined ? meetings.filter(row => row.status === 'live' || row.status === 'finalizing').map(row => String(row.id)) : filteredMeetingIds
     const aiActions = actionMeetingIds.length === 0 ? [] : this.db.prepare(`SELECT * FROM meeting_ai_actions WHERE meeting_id IN (${this.placeholders(actionMeetingIds)}) ORDER BY created_at`).all(...actionMeetingIds) as Row[]
+    const meetingAgentBindings = filteredMeetingIds.length === 0 ? [] : this.db.prepare(`SELECT * FROM meeting_agent_bindings WHERE meeting_id IN (${this.placeholders(filteredMeetingIds)}) ORDER BY updated_at`).all(...filteredMeetingIds) as Row[]
+    const meetingIntents = filteredMeetingIds.length === 0 ? [] : this.db.prepare(`SELECT * FROM meeting_intents WHERE meeting_id IN (${this.placeholders(filteredMeetingIds)}) ORDER BY updated_at,id`).all(...filteredMeetingIds) as Row[]
     const categories = this.db.prepare('SELECT * FROM categories WHERE tenant_id=? AND deleted_at IS NULL ORDER BY name').all(actor.tenantId) as Row[]
 
     return {
@@ -147,6 +153,8 @@ export class SqliteFlowboardRepository {
       meetings: meetings.map(this.mapMeeting),
       utterances: utterances.map(this.mapUtterance),
       aiActions: aiActions.map(this.mapAiAction),
+      meetingAgentBindings: meetingAgentBindings.map(this.mapMeetingAgentBinding),
+      meetingIntents: meetingIntents.map(this.mapMeetingIntent),
       library: library.map(this.mapLibrary),
       events: events.map(this.mapEvent),
       links: {
@@ -306,6 +314,11 @@ export class SqliteFlowboardRepository {
       case 'meeting.delete': return this.deleteMeeting(actor, request)
       case 'meeting.transcript.append': return this.appendTranscript(actor, request)
       case 'meeting.action.append': return this.appendMeetingAction(actor, request)
+      case 'meeting.agent.bind': return this.bindMeetingAgent(actor, request)
+      case 'meeting.agent.progress': return this.updateMeetingAgentProgress(actor, request)
+      case 'meeting.intent.upsert': return this.upsertMeetingIntent(actor, request)
+      case 'meeting.intent.status': return this.updateMeetingIntentStatus(actor, request)
+      case 'meeting.intent.commit': return this.commitMeetingIntent(actor, request)
       case 'meeting.finalize': return this.finalizeMeeting(actor, request)
       case 'library.create': return this.createLibrary(actor, request)
       case 'library.update': return this.updateLibrary(actor, request)
@@ -567,6 +580,7 @@ export class SqliteFlowboardRepository {
       this.validateProjectSet(actor, request.payload.projectIds, String(row.team_id), true)
       this.replaceProjectLinks('project_meetings', 'meeting_id', String(row.id), request.payload.projectIds, stamp)
     }
+    if (status === 'ended' || status === 'cancelled') this.db.prepare("UPDATE meeting_agent_bindings SET state='closed',updated_at=? WHERE meeting_id=? AND state='active'").run(stamp, row.id)
     return this.record(actor, 'meeting', String(row.id), request.type, version + 1, this.entity('meetings', String(row.id)))
   }
 
@@ -597,34 +611,171 @@ export class SqliteFlowboardRepository {
     return this.record(actor, 'meeting', String(row.id), request.type, version + 1, this.entity('meetings', String(row.id)))
   }
 
+  private bindMeetingAgent(actor: ActorView, request: Extract<CommandRequest, { type: 'meeting.agent.bind' }>): CommandResult {
+    const meeting = this.requireMeeting(actor, request.payload.id, true).meeting
+    if (meeting.status !== 'live' && meeting.status !== 'finalizing') throw conflict('Meeting agent can only bind an active meeting', { status: String(meeting.status) })
+    const current = this.db.prepare('SELECT * FROM meeting_agent_bindings WHERE meeting_id=?').get(meeting.id) as Row | undefined
+    if (current !== undefined && current.state === 'active' && current.session_id === request.payload.sessionId) {
+      return { cursor: this.cursor(actor.tenantId), entityType: 'meeting_agent_binding', entityId: String(meeting.id), version: 1, replayed: true }
+    }
+    const occupied = this.db.prepare("SELECT meeting_id FROM meeting_agent_bindings WHERE session_id=? AND state='active'").get(request.payload.sessionId) as Row | undefined
+    if (occupied !== undefined && occupied.meeting_id !== meeting.id) throw conflict('Session is already supervising another meeting', { meetingId: String(occupied.meeting_id) })
+    if (current !== undefined && current.state === 'active') throw conflict('Meeting is already supervised by another session', { sessionId: String(current.session_id) })
+    const stamp = now()
+    this.db.prepare(`INSERT INTO meeting_agent_bindings(meeting_id,session_id,state,delivered_sequence,analyzed_sequence,created_at,updated_at)
+      VALUES(?,?,'active',0,0,?,?)
+      ON CONFLICT(meeting_id) DO UPDATE SET session_id=excluded.session_id,state='active',delivered_sequence=0,analyzed_sequence=0,updated_at=excluded.updated_at`)
+      .run(meeting.id, request.payload.sessionId, stamp, stamp)
+    return this.record(actor, 'meeting_agent_binding', String(meeting.id), request.type, 1, this.meetingBinding(String(meeting.id)))
+  }
+
+  private updateMeetingAgentProgress(actor: ActorView, request: Extract<CommandRequest, { type: 'meeting.agent.progress' }>): CommandResult {
+    const meeting = this.requireMeeting(actor, request.payload.id, true).meeting
+    const binding = this.db.prepare('SELECT * FROM meeting_agent_bindings WHERE meeting_id=?').get(meeting.id) as Row | undefined
+    if (binding === undefined || binding.state !== 'active') throw conflict('Meeting has no active Supervisor binding')
+    const latest = this.latestUtteranceSequence(String(meeting.id))
+    const delivered = request.payload.deliveredSequence ?? Number(binding.delivered_sequence)
+    const analyzed = request.payload.analyzedSequence ?? Number(binding.analyzed_sequence)
+    if (delivered < Number(binding.delivered_sequence) || analyzed < Number(binding.analyzed_sequence)) throw conflict('Meeting agent progress cannot move backwards')
+    if (analyzed > delivered || delivered > latest) throw conflict('Meeting agent progress exceeds available transcript', { latestSequence: latest })
+    if (delivered === Number(binding.delivered_sequence) && analyzed === Number(binding.analyzed_sequence)) {
+      return { cursor: this.cursor(actor.tenantId), entityType: 'meeting_agent_binding', entityId: String(meeting.id), version: 1, replayed: true }
+    }
+    this.db.prepare('UPDATE meeting_agent_bindings SET delivered_sequence=?,analyzed_sequence=?,updated_at=? WHERE meeting_id=?').run(delivered, analyzed, now(), meeting.id)
+    return this.record(actor, 'meeting_agent_binding', String(meeting.id), request.type, 1, this.meetingBinding(String(meeting.id)))
+  }
+
+  private upsertMeetingIntent(actor: ActorView, request: Extract<CommandRequest, { type: 'meeting.intent.upsert' }>): CommandResult {
+    const meeting = this.requireMeeting(actor, request.payload.meetingId, true).meeting
+    if (meeting.status !== 'live' && meeting.status !== 'finalizing') throw conflict('Meeting is not accepting AI intents', { status: String(meeting.status) })
+    const latest = this.latestUtteranceSequence(String(meeting.id))
+    if (request.payload.evidenceFromSequence > request.payload.evidenceToSequence || request.payload.evidenceToSequence > latest) {
+      throw conflict('Intent evidence exceeds available transcript', { latestSequence: latest })
+    }
+    const existing = this.db.prepare('SELECT * FROM meeting_intents WHERE meeting_id=? AND intent_key=?').get(meeting.id, request.payload.intentKey) as Row | undefined
+    const stamp = now()
+    if (existing === undefined) {
+      const id = randomUUID()
+      this.db.prepare(`INSERT INTO meeting_intents(id,meeting_id,intent_key,kind,status,payload_json,evidence_from_sequence,evidence_to_sequence,revision,created_at,updated_at)
+        VALUES(?,?,?,?,'detected',?,?,?,?,?,?)`)
+        .run(id, meeting.id, request.payload.intentKey, request.payload.kind, JSON.stringify(request.payload.payload), request.payload.evidenceFromSequence, request.payload.evidenceToSequence, 1, stamp, stamp)
+      return this.record(actor, 'meeting_intent', id, request.type, 1, this.entity('meeting_intents', id))
+    }
+    if (existing.status === 'applied') throw conflict('Applied intent cannot be revised; create a new intent key', { intentId: String(existing.id) })
+    const revision = Number(existing.revision) + 1
+    this.db.prepare(`UPDATE meeting_intents SET kind=?,status='detected',payload_json=?,evidence_from_sequence=?,evidence_to_sequence=?,revision=?,subagent_id=NULL,entity_type=NULL,entity_id=NULL,error=NULL,updated_at=? WHERE id=?`)
+      .run(request.payload.kind, JSON.stringify(request.payload.payload), request.payload.evidenceFromSequence, request.payload.evidenceToSequence, revision, stamp, existing.id)
+    return this.record(actor, 'meeting_intent', String(existing.id), request.type, revision, this.entity('meeting_intents', String(existing.id)))
+  }
+
+  private updateMeetingIntentStatus(actor: ActorView, request: Extract<CommandRequest, { type: 'meeting.intent.status' }>): CommandResult {
+    const intent = this.requireMeetingIntent(actor, request.payload.id, true)
+    if (Number(intent.revision) !== request.payload.revision) throw conflict('Meeting intent revision conflict', { currentRevision: Number(intent.revision) })
+    this.assertMeetingIntentTransition(intent.status as MeetingIntentStatus, request.payload.status)
+    this.db.prepare('UPDATE meeting_intents SET status=?,subagent_id=?,error=?,updated_at=? WHERE id=?').run(
+      request.payload.status,
+      request.payload.subagentId === undefined ? intent.subagent_id : request.payload.subagentId,
+      request.payload.error === undefined ? intent.error : request.payload.error,
+      now(), intent.id,
+    )
+    return this.record(actor, 'meeting_intent', String(intent.id), request.type, Number(intent.revision), this.entity('meeting_intents', String(intent.id)))
+  }
+
+  private commitMeetingIntent(actor: ActorView, request: Extract<CommandRequest, { type: 'meeting.intent.commit' }>): CommandResult {
+    const intent = this.requireMeetingIntent(actor, request.payload.id, true)
+    const meeting = this.requireMeeting(actor, String(intent.meeting_id), true).meeting
+    if (Number(intent.revision) !== request.payload.revision) throw conflict('Meeting intent revision conflict', { currentRevision: Number(intent.revision) })
+    if (intent.status === 'applied') {
+      return {
+        cursor: this.cursor(actor.tenantId),
+        entityType: nullable(intent.entity_type) ?? 'meeting_intent',
+        entityId: nullable(intent.entity_id) ?? String(intent.id),
+        version: Number(intent.revision),
+        replayed: true,
+      }
+    }
+    const latest = this.latestUtteranceSequence(String(meeting.id))
+    if (request.payload.basisSequence !== latest || Number(intent.evidence_to_sequence) > request.payload.basisSequence) {
+      throw conflict('Meeting transcript advanced; re-evaluate the intent before committing', { latestSequence: latest, basisSequence: request.payload.basisSequence })
+    }
+    const settings = parseJson<MeetingSettings>(meeting.settings_json, DEFAULT_SETTINGS)
+    if (settings.automation === 'record') throw forbidden('Record-only meetings cannot commit AI intents')
+    if (settings.automation === 'suggest' && intent.status !== 'approved') throw conflict('Suggested intent requires approval before commit', { status: String(intent.status) })
+    if (!['detected', 'approved', 'executing'].includes(String(intent.status))) throw conflict('Meeting intent is not ready to commit', { status: String(intent.status) })
+
+    const payload = parseJson<MeetingIntentPayload>(intent.payload_json, { title: '' })
+    const linkedProjects = new Set((this.db.prepare('SELECT project_id FROM project_meetings WHERE meeting_id=?').all(meeting.id) as Row[]).map(row => String(row.project_id)))
+    const projectIds = payload.projectIds ?? (payload.projectId === undefined ? [] : [payload.projectId])
+    if (projectIds.some(projectId => !linkedProjects.has(projectId))) throw conflict('Intent references a project outside the meeting', { meetingId: String(meeting.id) })
+    this.db.prepare("UPDATE meeting_intents SET status='executing',error=NULL,updated_at=? WHERE id=?").run(now(), intent.id)
+
+    let entityType: string
+    let entityId: string
+    if (intent.kind === 'task') {
+      const projectId = projectIds[0]
+      if (projectId === undefined) throw conflict('Task intent requires a linked project')
+      const created = this.createTask(actor, {
+        idempotencyKey: `intent:${intent.id}:${intent.revision}`,
+        type: 'task.create',
+        payload: {
+          projectId,
+          title: payload.title,
+          meetingIds: [String(meeting.id)],
+          ...(payload.summary === undefined ? {} : { summary: payload.summary }),
+          ...(payload.assigneeId === undefined ? {} : { assigneeId: payload.assigneeId }),
+          ...(payload.dueAt === undefined ? {} : { dueAt: payload.dueAt }),
+          ...(payload.priority === undefined ? {} : { priority: payload.priority }),
+        },
+      })
+      entityType = created.entityType; entityId = created.entityId
+    } else if (intent.kind === 'document') {
+      if (projectIds.length === 0) throw conflict('Document intent requires at least one linked project')
+      const created = this.createLibrary(actor, {
+        idempotencyKey: `intent:${intent.id}:${intent.revision}`,
+        type: 'library.create',
+        payload: {
+          teamId: String(meeting.team_id), projectIds, type: 'doc', title: payload.title,
+          content: payload.content ?? payload.summary ?? '', sourceMeetingId: String(meeting.id),
+        },
+      })
+      entityType = created.entityType; entityId = created.entityId
+    } else {
+      const field = intent.kind === 'decision' ? 'decisions_json' : intent.kind === 'risk' ? 'risks_json' : null
+      if (field !== null) {
+        const values = parseJson<string[]>(meeting[field], [])
+        if (!values.includes(payload.title)) values.push(payload.title)
+        const entityVersion = Number(meeting.version) + 1
+        this.db.prepare(`UPDATE meetings SET ${field}=?,version=?,updated_at=? WHERE id=?`).run(JSON.stringify(values), entityVersion, now(), meeting.id)
+        this.record(actor, 'meeting', String(meeting.id), `meeting.intent.${String(intent.kind)}`, entityVersion, this.entity('meetings', String(meeting.id)))
+      }
+      entityType = 'meeting'; entityId = String(meeting.id)
+    }
+
+    const stamp = now()
+    this.db.prepare("UPDATE meeting_intents SET status='applied',entity_type=?,entity_id=?,error=NULL,updated_at=? WHERE id=?").run(entityType, entityId, stamp, intent.id)
+    this.db.prepare('INSERT INTO meeting_ai_actions(id,meeting_id,call_id,kind,summary,entity_type,entity_id,ok,created_at) VALUES(?,?,?,?,?,?,?,?,?)')
+      .run(randomUUID(), meeting.id, `intent:${String(intent.id)}:${String(intent.revision)}`, intent.kind === 'risk' ? 'note' : intent.kind, payload.title, entityType, entityId, 1, stamp)
+    return { ...this.record(actor, 'meeting_intent', String(intent.id), request.type, Number(intent.revision), this.entity('meeting_intents', String(intent.id))), related: [{ entityType, entityId }] }
+  }
+
   private finalizeMeeting(actor: ActorView, request: Extract<CommandRequest, { type: 'meeting.finalize' }>): CommandResult {
     const row = this.requireMeeting(actor, request.payload.id, true).meeting; const version = this.expect(row, request.expectedVersion)
     if (row.status !== 'live' && row.status !== 'finalizing') throw conflict('Meeting cannot be finalized', { status: String(row.status) })
-    const related: Array<{ entityType: string; entityId: string }> = []
-    for (const item of request.payload.actionItems ?? []) {
-      const created = this.createTask(actor, {
-        idempotencyKey: `nested:${item.key}`,
-        type: 'task.create',
-        payload: {
-          projectId: item.projectId,
-          title: item.title,
-          meetingIds: [request.payload.id],
-          ...(item.summary === undefined ? {} : { summary: item.summary }),
-          ...(item.assigneeId === undefined ? {} : { assigneeId: item.assigneeId }),
-          ...(item.dueAt === undefined ? {} : { dueAt: item.dueAt }),
-          ...(item.priority === undefined ? {} : { priority: item.priority }),
-        },
-      })
-      related.push({ entityType: 'task', entityId: created.entityId })
+    if (this.db.prepare("SELECT 1 FROM transcription_jobs WHERE meeting_id=? AND state IN ('pending','processing') LIMIT 1").get(row.id) !== undefined) {
+      throw conflict('Meeting still has transcription jobs in progress')
     }
-    for (const document of request.payload.documents ?? []) {
-      const created = this.createLibrary(actor, { idempotencyKey: `nested:${document.key}`, type: 'library.create', payload: { teamId: String(row.team_id), projectIds: document.projectIds, type: 'doc', title: document.title, content: document.content, sourceMeetingId: request.payload.id } })
-      related.push({ entityType: 'library', entityId: created.entityId })
+    const latestSequence = this.latestUtteranceSequence(String(row.id))
+    const binding = this.db.prepare("SELECT * FROM meeting_agent_bindings WHERE meeting_id=? AND state='active'").get(row.id) as Row | undefined
+    if (binding !== undefined && Number(binding.analyzed_sequence) < latestSequence) {
+      throw conflict('Meeting still has transcript awaiting Supervisor analysis', { latestSequence, analyzedSequence: Number(binding.analyzed_sequence) })
     }
+    const unresolved = Number((this.db.prepare("SELECT COUNT(*) AS value FROM meeting_intents WHERE meeting_id=? AND status IN ('detected','clarifying','approved','executing')").get(row.id) as Row).value)
+    if (unresolved > 0) throw conflict('Meeting still has unresolved intents', { unresolvedIntents: unresolved })
     const stamp = now()
-    this.db.prepare(`UPDATE meetings SET status='ended',summary=?,decisions_json=?,risks_json=?,ended_at=?,version=?,updated_at=? WHERE id=?`).run(request.payload.summary, JSON.stringify(request.payload.decisions ?? []), JSON.stringify(request.payload.risks ?? []), stamp, version + 1, stamp, row.id)
+    this.db.prepare(`UPDATE meetings SET status='ended',summary=?,ended_at=?,version=?,updated_at=? WHERE id=?`).run(request.payload.summary, stamp, version + 1, stamp, row.id)
+    this.db.prepare("UPDATE meeting_agent_bindings SET state='closed',updated_at=? WHERE meeting_id=? AND state='active'").run(stamp, row.id)
     this.db.prepare('INSERT INTO meeting_ai_actions(id,meeting_id,call_id,kind,summary,entity_type,entity_id,ok,created_at) VALUES(?,?,NULL,\'finalize\',\'会议已整理完成\',\'meeting\',?,1,?)').run(randomUUID(), row.id, row.id, stamp)
-    return { ...this.record(actor, 'meeting', String(row.id), request.type, version + 1, this.entity('meetings', String(row.id))), related }
+    return this.record(actor, 'meeting', String(row.id), request.type, version + 1, this.entity('meetings', String(row.id)))
   }
 
   private createLibrary(actor: ActorView, request: Extract<CommandRequest, { type: 'library.create' }>): CommandResult {
@@ -716,6 +867,22 @@ export class SqliteFlowboardRepository {
     if (from === to) return
     const allowed: Record<string, readonly string[]> = { scheduled: ['live', 'cancelled'], live: ['finalizing', 'cancelled'], finalizing: ['ended', 'cancelled'], ended: [], cancelled: [] }
     if (!(allowed[from] ?? []).includes(to)) throw conflict('Invalid meeting status transition', { from, to })
+  }
+
+  private assertMeetingIntentTransition(from: MeetingIntentStatus, to: MeetingIntentStatus): void {
+    if (from === to) return
+    const allowed: Record<MeetingIntentStatus, readonly MeetingIntentStatus[]> = {
+      detected: ['clarifying', 'approved', 'executing', 'superseded', 'rejected', 'failed'],
+      clarifying: ['approved', 'superseded', 'rejected', 'failed'],
+      approved: ['executing', 'superseded', 'rejected', 'failed'],
+      executing: ['failed'],
+      applied: [], superseded: [], rejected: [], failed: [],
+    }
+    if (!allowed[from].includes(to)) throw conflict('Invalid meeting intent status transition', { from, to })
+  }
+
+  private latestUtteranceSequence(meetingId: string): number {
+    return Number((this.db.prepare('SELECT COALESCE(MAX(sequence),0) AS value FROM meeting_utterances WHERE meeting_id=?').get(meetingId) as Row).value)
   }
 
   private validateCustomData(actor: ActorView, project: Row, data: Record<string, JsonValue>): void {
@@ -836,6 +1003,13 @@ export class SqliteFlowboardRepository {
     return { item, role: best }
   }
 
+  private requireMeetingIntent(actor: ActorView, intentId: string, write: boolean): Row {
+    const row = this.db.prepare('SELECT * FROM meeting_intents WHERE id=?').get(intentId) as Row | undefined
+    if (row === undefined) throw notFound('meeting intent', intentId)
+    this.requireMeeting(actor, String(row.meeting_id), write)
+    return row
+  }
+
   private roleRank(role: AccessRole): number { return ({ viewer: 1, member: 2, admin: 3, owner: 4 })[role] }
 
   private requireUser(actor: ActorView, userId: string, admin = false): Row {
@@ -891,6 +1065,7 @@ export class SqliteFlowboardRepository {
   private taskLinkRows(table: 'task_meetings' | 'task_library_items', projectIds: string[]): Row[] { return projectIds.length === 0 ? [] : this.db.prepare(`SELECT l.* FROM ${table} l JOIN tasks t ON t.id=l.task_id WHERE t.project_id IN (${this.placeholders(projectIds)}) AND t.deleted_at IS NULL`).all(...projectIds) as Row[] }
   private placeholders(values: readonly unknown[]): string { return values.map(() => '?').join(',') }
   private entity(table: string, id: string): Row { return asRow(this.db.prepare(`SELECT * FROM ${table} WHERE id=?`).get(id)) }
+  private meetingBinding(meetingId: string): Row { return asRow(this.db.prepare('SELECT * FROM meeting_agent_bindings WHERE meeting_id=?').get(meetingId)) }
   private expect(row: Row, expected?: number): number { const version = Number(row.version); if (expected === undefined || expected !== version) throw conflict('Entity version conflict', { currentVersion: version }); return version }
   private cursor(tenantId: string): number { return Number((this.db.prepare('SELECT COALESCE(MAX(id),0) AS value FROM change_events WHERE tenant_id=?').get(tenantId) as Row).value) }
 
@@ -915,6 +1090,8 @@ export class SqliteFlowboardRepository {
   private mapMeeting = (row: Row): MeetingView => ({ id: String(row.id), tenantId: String(row.tenant_id), teamId: String(row.team_id), title: String(row.title), status: row.status as MeetingView['status'], settings: parseJson(row.settings_json, DEFAULT_SETTINGS), transcript: String(row.transcript), summary: String(row.summary), decisions: parseJson(row.decisions_json, []), risks: parseJson(row.risks_json, []), startedAt: nullable(row.started_at), endedAt: nullable(row.ended_at), version: Number(row.version), createdAt: String(row.created_at), updatedAt: String(row.updated_at) })
   private mapUtterance = (row: Row): MeetingUtteranceView => ({ id: String(row.id), meetingId: String(row.meeting_id), sequence: Number(row.sequence), speakerId: nullable(row.speaker_id), text: String(row.text), startedAt: nullable(row.started_at), endedAt: nullable(row.ended_at), createdAt: String(row.created_at) })
   private mapAiAction = (row: Row): MeetingAiActionView => ({ id: String(row.id), meetingId: String(row.meeting_id), callId: nullable(row.call_id), kind: row.kind as MeetingAiActionView['kind'], summary: String(row.summary), entityType: nullable(row.entity_type), entityId: nullable(row.entity_id), ok: Boolean(row.ok), createdAt: String(row.created_at) })
+  private mapMeetingAgentBinding = (row: Row): MeetingAgentBindingView => ({ meetingId: String(row.meeting_id), sessionId: String(row.session_id), state: row.state as MeetingAgentBindingView['state'], deliveredSequence: Number(row.delivered_sequence), analyzedSequence: Number(row.analyzed_sequence), createdAt: String(row.created_at), updatedAt: String(row.updated_at) })
+  private mapMeetingIntent = (row: Row): MeetingIntentView => ({ id: String(row.id), meetingId: String(row.meeting_id), intentKey: String(row.intent_key), kind: row.kind as MeetingIntentView['kind'], status: row.status as MeetingIntentView['status'], payload: parseJson<MeetingIntentPayload>(row.payload_json, { title: '' }), evidenceFromSequence: Number(row.evidence_from_sequence), evidenceToSequence: Number(row.evidence_to_sequence), revision: Number(row.revision), subagentId: nullable(row.subagent_id), entityType: nullable(row.entity_type), entityId: nullable(row.entity_id), error: nullable(row.error), createdAt: String(row.created_at), updatedAt: String(row.updated_at) })
   private mapLibrary = (row: Row): LibraryItemView => ({ id: String(row.id), tenantId: String(row.tenant_id), teamId: String(row.team_id), type: row.type as LibraryItemView['type'], title: String(row.title), content: String(row.content), url: nullable(row.url), categoryId: nullable(row.category_id), sourceMeetingId: nullable(row.source_meeting_id), version: Number(row.version), createdAt: String(row.created_at), updatedAt: String(row.updated_at) })
   private mapEvent = (row: Row): CalendarEventView => ({ id: String(row.id), tenantId: String(row.tenant_id), projectId: nullable(row.project_id), type: row.type as CalendarEventView['type'], title: String(row.title), startAt: String(row.start_at), endAt: nullable(row.end_at), allDay: Boolean(row.all_day), ownerId: nullable(row.owner_id), attendeeIds: parseJson(row.attendee_ids_json, []), taskId: nullable(row.task_id), meetingId: nullable(row.meeting_id), version: Number(row.version), createdAt: String(row.created_at), updatedAt: String(row.updated_at) })
   private mapTranscription = (row: Row): TranscriptionView => ({ id: String(row.id), meetingId: String(row.meeting_id), clientSegmentId: String(row.client_segment_id), state: row.state as TranscriptionView['state'], text: nullable(row.text), utteranceSequence: row.utterance_sequence === null || row.utterance_sequence === undefined ? null : Number(row.utterance_sequence), error: nullable(row.error), createdAt: String(row.created_at), updatedAt: String(row.updated_at) })

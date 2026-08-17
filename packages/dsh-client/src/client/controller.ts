@@ -21,8 +21,8 @@ export interface MeetingRuntime {
   meetingId: string | null
   recording: boolean
   uploading: boolean
+  stopping: boolean
   candidate: string
-  awaitingConsumption: boolean
   error: string | null
 }
 
@@ -36,7 +36,7 @@ export interface FlowboardState {
   error: string | null
 }
 
-const emptyRuntime = (): MeetingRuntime => ({ meetingId: null, recording: false, uploading: false, candidate: '', awaitingConsumption: false, error: null })
+const emptyRuntime = (): MeetingRuntime => ({ meetingId: null, recording: false, uploading: false, stopping: false, candidate: '', error: null })
 
 export class FlowboardController implements HostObservable<FlowboardState> {
   private state: FlowboardState = { status: 'loading', snapshot: null, route: { area: 'home' }, selectedPersonId: null, meetingRuntimes: {}, busy: false, error: null }
@@ -51,7 +51,10 @@ export class FlowboardController implements HostObservable<FlowboardState> {
   }
   start(): void { void this.run() }
   dispose(): void { this.abort.abort(); this.listeners.clear() }
-  navigate = (route: FlowboardRoute): void => this.update({ route })
+  navigate = (route: FlowboardRoute): void => {
+    this.update({ route })
+    if (route.area === 'meetings' && route.meetingId !== null) void this.refresh().catch(error => this.fail(error))
+  }
   selectPerson = (personId: string): void => {
     if (this.state.snapshot?.people.some(person => person.id === personId) === true) this.update({ selectedPersonId: personId })
   }
@@ -62,7 +65,16 @@ export class FlowboardController implements HostObservable<FlowboardState> {
   }
 
   async refresh(): Promise<void> {
-    const snapshot = await this.remote.snapshot({}, this.abort.signal)
+    let snapshot = await this.remote.snapshot({}, this.abort.signal)
+    if (this.state.route.area === 'meetings' && this.state.route.meetingId !== null) {
+      const detail = await this.remote.snapshot({ meetingId: this.state.route.meetingId }, this.abort.signal)
+      snapshot = {
+        ...snapshot,
+        cursor: Math.max(snapshot.cursor, detail.cursor),
+        utterances: detail.utterances,
+        aiActions: detail.aiActions,
+      }
+    }
     let route = this.state.route
     if (route.area === 'projects') {
       const projectId = route.projectId

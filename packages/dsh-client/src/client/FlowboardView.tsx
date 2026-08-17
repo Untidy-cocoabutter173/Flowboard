@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   App as AntdApp,
   Avatar,
@@ -668,6 +668,12 @@ function MeetingDetail({
   const actions = snapshot.aiActions.filter(
     (item) => item.meetingId === meeting.id,
   );
+  const binding = snapshot.meetingAgentBindings.find(
+    (item) => item.meetingId === meeting.id,
+  );
+  const intents = snapshot.meetingIntents.filter(
+    (item) => item.meetingId === meeting.id,
+  );
   const documents = new Set(
     snapshot.links.meetingLibrary
       .filter((link) => link.meetingId === meeting.id)
@@ -710,6 +716,18 @@ function MeetingDetail({
           )}
         </section>
         <aside>
+          <h3>AI 秘书</h3>
+          <p>
+            {binding?.state === "active" ? "持续监听" : "未连接"} · 已分析 {binding?.analyzedSequence ?? 0}/{binding?.deliveredSequence ?? 0}
+          </p>
+          <h3>会议意图</h3>
+          {intents.map((item) => (
+            <p key={item.id}>
+              <span className={css.intentStatus}>{item.status}</span>
+              {item.payload.title}
+            </p>
+          ))}
+          {intents.length === 0 && <p>暂无待处理意图</p>}
           <h3>核心总结</h3>
           <p>{meeting.summary || "会议结束后由 AI 整理"}</p>
           <h3>决议</h3>
@@ -770,6 +788,19 @@ export function FlowboardView(
 ) {
   const state = props.useFlowboard((value) => value);
   const sessionId = String(props.sessionId);
+  useEffect(() => {
+    const binding = state.snapshot?.meetingAgentBindings.find(
+      (item) => item.sessionId === sessionId && item.state === "active",
+    );
+    if (binding === undefined) return;
+    const current = state.meetingRuntimes[sessionId];
+    if (current?.meetingId !== binding.meetingId) {
+      props.setMeetingRuntime(sessionId, {
+        meetingId: binding.meetingId,
+        error: null,
+      });
+    }
+  }, [props, sessionId, state.meetingRuntimes, state.snapshot]);
   if (state.snapshot === null)
     return (
       <div className={css.loading}>
@@ -808,18 +839,19 @@ export function FlowboardView(
       expectedVersion: meeting.version,
       payload: { id: meeting.id, status: "live" },
     });
+    await props.command({
+      type: "meeting.agent.bind",
+      payload: { id: meeting.id, sessionId },
+    });
     props.setMeetingRuntime(sessionId, { meetingId: meeting.id, error: null });
     props.navigate({ area: "meetings", meetingId: meeting.id });
   };
   const stopMeeting = async (meeting: MeetingView) => {
-    await props.command({
-      type: "meeting.update",
-      expectedVersion: meeting.version,
-      payload: { id: meeting.id, status: "finalizing" },
+    props.setMeetingRuntime(sessionId, {
+      meetingId: meeting.id,
+      stopping: true,
+      error: null,
     });
-    const prompt = `会议 ${meeting.id} 已停止采集。请先调用 flowboard_snapshot 读取会议详情，等待最后转写完成，然后调用 flowboard_finalize_meeting 整理总结、决议、风险、行动项和会议资料。`;
-    props.inputActions.setDraft(prompt);
-    props.inputActions.submit();
   };
   let body;
   if (route.area === "home")
@@ -977,11 +1009,20 @@ export function FlowboardMeetingDock(
 ) {
   const state = props.useFlowboard((value) => value);
   const sessionId = String(props.sessionId);
+  const stoppingRef = useRef(false);
   const runtime = state.meetingRuntimes[sessionId];
-  const input = props.useInput((value) => value);
   const meeting = state.snapshot?.meetings.find(
     (item) => item.id === runtime?.meetingId,
   );
+  const binding = state.snapshot?.meetingAgentBindings.find(
+    (item) => item.meetingId === meeting?.id && item.sessionId === sessionId,
+  );
+  const pendingIntents =
+    state.snapshot?.meetingIntents.filter(
+      (item) =>
+        item.meetingId === meeting?.id &&
+        !["applied", "superseded", "rejected"].includes(item.status),
+    ).length ?? 0;
   const active = meeting?.status === "live";
   const onSegment = useCallback(
     async (blob: Blob, startedAt: string, endedAt: string) => {
@@ -997,71 +1038,46 @@ export function FlowboardMeetingDock(
         );
         const text = result.text?.trim();
         if (text !== undefined && text !== "") {
-          const latest =
-            props.getState().meetingRuntimes[sessionId]?.candidate ?? "";
-          const candidate = latest === "" ? text : `${latest}\n${text}`;
-          const currentDraft = input.draft.trim();
-          props.inputActions.setDraft(
-            currentDraft === "" ? candidate : `${input.draft}\n${text}`,
-          );
-          props.setMeetingRuntime(sessionId, {
-            candidate,
-            awaitingConsumption: false,
-          });
+          props.setMeetingRuntime(sessionId, { candidate: text });
         }
       } finally {
         props.setMeetingRuntime(sessionId, { uploading: false });
       }
     },
-    [input.draft, meeting, props, sessionId],
+    [meeting, props, sessionId],
   );
-  useVadRecorder({
+  const { stopSegment } = useVadRecorder({
     active,
     onSegment,
     onState: (recording) => props.setMeetingRuntime(sessionId, { recording }),
     onError: (error) => props.setMeetingRuntime(sessionId, { error }),
   });
   useEffect(() => {
-    if (
-      runtime?.candidate === undefined ||
-      runtime.candidate === "" ||
-      runtime.awaitingConsumption ||
-      input.phase !== "plain"
-    )
-      return;
-    const timer = window.setTimeout(
-      () => {
-        props.setMeetingRuntime(sessionId, { awaitingConsumption: true });
-        props.inputActions.submit();
-      },
-      (meeting?.settings.silenceSec ?? 4) * 1_000,
-    );
-    return () => window.clearTimeout(timer);
-  }, [
-    input.phase,
-    meeting?.settings.silenceSec,
-    props,
-    runtime?.awaitingConsumption,
-    runtime?.candidate,
-    sessionId,
-  ]);
-  useEffect(() => {
-    if (
-      runtime?.awaitingConsumption === true &&
-      input.draft === "" &&
-      input.phase === "plain"
-    )
-      props.setMeetingRuntime(sessionId, {
-        candidate: "",
-        awaitingConsumption: false,
-      });
-  }, [
-    input.draft,
-    input.phase,
-    props,
-    runtime?.awaitingConsumption,
-    sessionId,
-  ]);
+    if (runtime?.stopping !== true || meeting === undefined || meeting.status !== "live" || stoppingRef.current) return;
+    stoppingRef.current = true;
+    void (async () => {
+      try {
+        await stopSegment();
+        const latestMeeting = props.getState().snapshot?.meetings.find(
+          (item) => item.id === meeting.id,
+        );
+        if (latestMeeting === undefined) throw new Error("会议状态已失效");
+        await props.command({
+          type: "meeting.update",
+          expectedVersion: latestMeeting.version,
+          payload: { id: meeting.id, status: "finalizing" },
+        });
+        props.setMeetingRuntime(sessionId, { stopping: false, recording: false });
+      } catch (error) {
+        props.setMeetingRuntime(sessionId, {
+          stopping: false,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      } finally {
+        stoppingRef.current = false;
+      }
+    })();
+  }, [meeting, props, runtime?.stopping, sessionId, stopSegment]);
   if (meeting === undefined || runtime === undefined) return null;
   return (
     <div className={css.meetingDock}>
@@ -1069,33 +1085,27 @@ export function FlowboardMeetingDock(
       <strong>{meeting.title}</strong>
       <span>
         {active
-          ? runtime.recording
+          ? runtime.stopping
+            ? "正在完成最后转写"
+            : runtime.recording
             ? "正在听取发言"
             : runtime.uploading
               ? "正在转写"
               : "AI 秘书在线"
           : "AI 正在整理"}
       </span>
-      <p>{runtime.candidate || "转录内容会持续进入输入候选框"}</p>
+      <p>{runtime.candidate || "转录会持续写入会议稿，由 Supervisor 统一分析"}</p>
+      <span className={css.meetingAgentProgress}>
+        已分析 {binding?.analyzedSequence ?? 0}/{binding?.deliveredSequence ?? 0}
+        {pendingIntents > 0 ? ` · ${pendingIntents} 个意图待处理` : ""}
+      </span>
       {runtime.error !== null && <em>{runtime.error}</em>}
       {active && (
         <Button
           size="small"
           icon={<StopOutlined />}
-          onClick={() =>
-            void props
-              .command({
-                type: "meeting.update",
-                expectedVersion: meeting.version,
-                payload: { id: meeting.id, status: "finalizing" },
-              })
-              .then(() => {
-                const prompt = `会议 ${meeting.id} 已结束，请读取会议并调用 flowboard_finalize_meeting 完成整理。`;
-                props.inputActions.setDraft(prompt);
-                props.inputActions.submit();
-              })
-              .catch(() => undefined)
-          }
+          disabled={runtime.stopping}
+          onClick={() => props.setMeetingRuntime(sessionId, { stopping: true, error: null })}
         >
           停止
         </Button>

@@ -13,6 +13,7 @@ import {
 } from '@flowboard/contracts'
 import { startFlowboardRuntime } from '@flowboard/server'
 import { FlowboardHttpClient, type HttpClientConfig } from './http-client.ts'
+import { MeetingCoordinator } from './meeting-coordinator.ts'
 import { registerFlowboardTools } from './tools.ts'
 
 export interface Config extends Partial<HttpClientConfig> {
@@ -29,7 +30,7 @@ declare module '@deepseek-ai/cordis' {
 }
 
 export class FlowboardService extends TypertRemoteService {
-  static inject = ['tools']
+  static inject = ['tools', 'agents', 'systemPrompt']
   private readonly client: FlowboardHttpClient
 
   constructor(ctx: Context, config: Config) {
@@ -57,6 +58,13 @@ export class FlowboardService extends TypertRemoteService {
       }, 'flowboard.embeddedRuntime')
     }
     registerFlowboardTools(ctx, this.client)
+    const coordinator = new MeetingCoordinator(
+      ctx,
+      this.client,
+      ctx.get('agents') as never,
+      ctx.get('systemPrompt') as never,
+    )
+    coordinator.start()
   }
 
   @Remote('snapshot')
@@ -86,4 +94,5 @@ export class FlowboardService extends TypertRemoteService {
 }
 
 export { FlowboardHttpClient, FlowboardRemoteError, type HttpClientConfig } from './http-client.ts'
+export { MeetingCoordinator } from './meeting-coordinator.ts'
 export default FlowboardService

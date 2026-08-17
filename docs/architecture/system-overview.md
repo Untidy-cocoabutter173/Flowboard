@@ -1,10 +1,10 @@
 # 系统架构总览
 
-> 🆕 本文以 Flowboard API v2 与当前源码为准。
+> 本文以 Flowboard API v3 与当前源码为准。
 
 ## 一句话架构
 
-Flowboard 是“一个 v2 共享契约、一个服务端写入口、静态为主且动态可降级的两种 Cordis 交付形态”：两种 Host 使用同一 HTTP 语义，页面和 Agent 工具不会形成第二业务状态源。⚡
+Flowboard 是“一个 v3 共享契约、一个服务端写入口、静态为主且动态可降级的两种 Cordis 交付形态”：页面、MeetingCoordinator 和 Agent 工具使用同一 HTTP 语义，不形成第二业务状态源。
 
 ## 分层
 
@@ -17,10 +17,11 @@ flowchart LR
   SS -->|拥有生命周期| WORKER
   DC[动态 DSH Client] -->|host.call| DH[动态 Host]
   DA[动态 Agent Tools] --> DH
-  HC --> API[Fastify HTTP v2]
+  CO[MeetingCoordinator] --> HC
+  HC --> API[Fastify HTTP v3]
   DH --> API
   API --> REPO[SqliteFlowboardRepository]
-  REPO --> DB[(SQLite schema v2)]
+  REPO --> DB[(SQLite schema v3)]
   DC -->|base64 分段| DH
   SC -->|一次性 URL| API
   API --> WORKER[Transcription Worker]
@@ -29,9 +30,9 @@ flowchart LR
 
 | 层 | 源码 | 当前职责 |
 | --- | --- | --- |
-| Contracts | `packages/contracts/src/index.ts` | API v2 DTO、命令、Zod 校验、多对多链接 |
-| Static Client | `packages/dsh-client/src/client` | 完整工作区菜单、人物视角、项目页签、Ant Design 视觉系统、Jira/多维任务表、按 session 会议 owner、VAD 与 composer 协调 ⚡ |
-| Static Host | `packages/dsh-service/src` | HTTP Client、Remote、callId 幂等工具及内嵌 API/Worker 生命周期 |
+| Contracts | `packages/contracts/src/index.ts` | API v3 DTO、会议意图命令、Zod 校验、多对多链接 |
+| Static Client | `packages/dsh-client/src/client` | 完整工作区、Jira/多维任务表、按 session 会议 owner、VAD 与 Supervisor 状态 Dock |
+| Static Host | `packages/dsh-service/src` | HTTP Client、Remote、MeetingCoordinator、Agent Tools 及内嵌 API/Worker 生命周期 |
 | Dynamic Host/Client | `dynamic/*.js` | `cordis_define` 纯 JS 函数体；Client 只用 `host.call` |
 | HTTP API | `packages/server/src/application.ts` | 路由、认证入口、统一错误、上传接收 |
 | Repository | `packages/server/src/repository.ts` | 权限、事务、乐观锁、幂等、审计、版本、游标 |
@@ -43,7 +44,7 @@ flowchart LR
 
 项目看板和任务表不是独立实体副本：`workflow_statuses` 定义项目工作流，`saved_views` 保存 board/table/calendar 的字段与分组配置，任务自定义数据由 `task_field_definitions + tasks.custom_json` 承载。
 
-数据库只接受 schema v2。`openDatabase()` 发现 `schema_migrations` 不是 v2 时会先关闭连接再抛错；当前无生产数据，不提供迁移链。🆕
+`meeting_agent_bindings` 持久化会议与 DSH Session 的绑定及投递/分析水位；`meeting_intents` 保存稳定意图键、证据序号、修订、状态、Subagent 和最终实体引用。数据库只接受 schema v3；当前无生产数据，不提供迁移链。
 
 ## 快照与命令
 
@@ -61,13 +62,13 @@ flowchart LR
 ```mermaid
 sequenceDiagram
   participant B as Browser Client
-  participant C as DSH Composer
-  participant H as Static/Dynamic Host
+  participant H as Static Host
   participant A as Flowboard API
   participant W as Worker
-  participant AI as DSH Agent
+  participant CO as MeetingCoordinator
+  participant AI as DSH Supervisor
 
-  B->>A: meeting.create / meeting.update(live)
+  B->>A: meeting.update(live) + meeting.agent.bind(sessionId)
   B->>B: VAD 检测语音、保留 pre-roll 并编码 16 kHz PCM WAV
   B->>H: 上传/转写分段
   H->>H: 规范 MIME 并精确计算 Base64 字节数
@@ -79,18 +80,17 @@ sequenceDiagram
     B->>H: transcription(jobId)
     H->>A: GET transcription
   end
-  H-->>B: completed text
-  B->>C: setDraft(候选转录)
-  B->>C: 静音超时 submit()
-  C->>AI: 会议增量
-  AI->>H: 领域工具
-  H->>A: callId 幂等命令
+  H-->>B: completed text（只展示，不写 Composer）
+  CO->>A: 读取 change cursor 与完整会议快照
+  CO->>AI: running=steer / idle=followup / pending=replace
+  AI->>H: observe + upsert/status/commit intent + ack
+  H->>A: revision + basisSequence 幂等事务
   B->>A: meeting.update(finalizing)
   AI->>H: flowboard_finalize_meeting
-  H->>A: 总结/决议/风险/任务/资料/ended
+  H->>A: 最终总结/ended（其他产物已由 intent 提交）
 ```
 
-候选转录在提交后保留于会议 runtime；只有观察到 DSH `InputState` 回到 `phase=plain` 且 `draft=''` 才标记消费完成。会议 runtime 以 `sessionId` 为键，同一会话的 composer Dock 与工作空间视图共享状态。🆕
+转录只进入权威会议稿。MeetingCoordinator 在每个 Step 注入完整转录与意图账本，并合并未消费通知；Agent 忙碌时使用 steering，空闲时启动 follow-up。`meeting.finalize` 会拒绝仍有转写任务、遗漏水位或未决意图的请求。
 
 静态与动态 Client 都通过 Web Audio 收集单声道 PCM，包含 350ms pre-roll、800ms 静音切段与 15 秒连续语音上限，并在浏览器内重采样、编码为 16 kHz 16-bit WAV。Whisper 不再需要 ffmpeg 解码 MediaRecorder 的 WebM/Opus，上传票据的 `expected_size/content_type` 也与实际 PUT 严格一致。⚡
 

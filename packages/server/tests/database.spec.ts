@@ -20,4 +20,15 @@ describe('Flowboard database schema', () => {
     old.close()
     expect(() => openDatabase({ path })).toThrow(/schema 1 is unsupported; remove the development database/)
   })
+
+  it('新数据库直接创建 v3 会议 Supervisor 表', () => {
+    const db = openDatabase({ path: ':memory:' })
+    try {
+      expect(db.prepare('SELECT MAX(version) AS version FROM schema_migrations').get()).toMatchObject({ version: 3 })
+      expect(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('meeting_agent_bindings','meeting_intents') ORDER BY name").all())
+        .toEqual([{ name: 'meeting_agent_bindings' }, { name: 'meeting_intents' }])
+    } finally {
+      db.close()
+    }
+  })
 })

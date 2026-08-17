@@ -32,7 +32,7 @@ describe('Flowboard HTTP API', () => {
     expect(allowed.statusCode).toBe(200)
     expect(allowed.json().projects).toHaveLength(1)
     const summary = await app.inject({ method: 'GET', url: '/v1/summary', headers: { authorization: 'Bearer http-token' } })
-    expect(summary.json()).toMatchObject({ apiVersion: 2, counts: { projects: 1 } })
+    expect(summary.json()).toMatchObject({ apiVersion: 3, counts: { projects: 1 } })
   })
 
   it('执行命令并通过游标读取变更', async () => {

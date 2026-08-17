@@ -21,6 +21,16 @@ for (const file of files) {
     for (const marker of ['Jira 面板', '任务列表', '项目成员', 'field.create', 'project.member.remove', '保存 Markdown']) {
       if (!source.includes(marker)) throw new Error(`${file}: missing dynamic workspace capability ${marker}`)
     }
+    for (const marker of ['meeting.agent.bind', 'meetingAgentBindings', 'meetingIntents']) {
+      if (!source.includes(marker)) throw new Error(`${file}: missing dynamic meeting Supervisor capability ${marker}`)
+    }
+    if (source.includes('inputActions.submit') || source.includes('inputActions.setDraft')) {
+      throw new Error(`${file}: meeting transcription must not drive the Composer`)
+    }
+  } else {
+    for (const marker of ['flowboard_upsert_meeting_intent', 'flowboard_commit_meeting_intent', 'agent/turn-stopping']) {
+      if (!source.includes(marker)) throw new Error(`${file}: missing dynamic meeting Supervisor capability ${marker}`)
+    }
   }
 }
 
