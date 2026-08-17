@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [0.1.2-alpha.5] - 2026-08-17
+
+### Fixed
+
+- 完整 Whisper 模型包改由 GitHub prerelease 直接交付，避开 npm 客户端处理超大 tarball 的字符串上限。
+
 ## [0.1.2-alpha.4] - 2026-08-17
 
 ### Fixed
@@ -14,7 +20,7 @@
 
 ### Fixed
 
-- 将兼容的 DSH CLI 固定为工作区开发依赖，修复 GitHub runner 无法执行 pnpm 全局安装的问题。
+- 改用 Node 工具链提供的 npm 安装兼容 DSH CLI，修复 GitHub runner 无法执行 pnpm 全局安装的问题。
 
 ## [0.1.2-alpha.2] - 2026-08-17
 

@@ -108,14 +108,13 @@ Whisper CLI、共享库和 `ggml-small.bin` 是插件能力的一部分，必须
 
 公开仓库应保留 `LICENSE`、`CONTRIBUTING.md`、`SECURITY.md`、`CODE_OF_CONDUCT.md`、`CHANGELOG.md` 和 `THIRD_PARTY_NOTICES.md`。Issue/PR 模板负责收集 DSH、Node、平台、复现步骤和检查结果。
 
-Alpha 阶段采用 `v<base-version>-alpha.<number>` Git tag，并始终发布到 npm `alpha` dist-tag；不得占用 `latest`。发布工作流应：
+Alpha 阶段采用 `v<base-version>-alpha.<number>` Git tag，并以 GitHub prerelease 交付完整插件 tarball。完整 Whisper 模型使包体超过 npm 客户端可可靠发布的大小，因此不发布 npm dist-tag。发布工作流应：
 
 1. 使用 Git LFS 完整检出源码并以 frozen lockfile 安装。
 2. 校验 tag 与 `packages/dsh/package.json` 的 Alpha 版本一致。
 3. 执行 `pnpm run release:check`。
 4. 仅发布生成的 `@flowboard/dsh` tarball。
-5. 使用 npm Trusted Publisher/OIDC 和 provenance，不保存长期 npm Token。
-6. 将 tarball 与 SHA-256 附加到标记为 prerelease 的 GitHub Release。
+5. 将 tarball 与 SHA-256 附加到标记为 prerelease 的 GitHub Release。
 
 内部 workspace 包必须保持 `private: true`。仓库不再提供 `.codex-plugin/plugin.json`，避免形成与 DSH 无关的第二插件身份。
 

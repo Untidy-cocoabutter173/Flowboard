@@ -36,14 +36,16 @@ Harness 是人与 Agent 的办公入口，Flowboard 是其中的办公协作与�
 - 项目、会议、任务与 Markdown 资料之间的可追踪关联。
 - 页面与 Agent 共用的权限、校验、幂等、乐观锁、事务和审计链路。
 
-这个 npm 包是唯一公开发行单元，同时包含 Host、Web Client、Agent 工具、SQLite 服务和 Linux x64 Whisper 运行时及完整 `ggml-small` 模型。
+这个插件 tarball 是唯一公开发行单元，同时包含 Host、Web Client、Agent 工具、SQLite 服务和 Linux x64 Whisper 运行时及完整 `ggml-small` 模型。
 
 ## 安装
 
 要求 Linux x64、Node.js `22.19+` 或 `24+`、DeepSeek Harness `0.1.0-rc.6`，并预留约 500 MB 磁盘空间。
 
+从 GitHub Alpha prerelease 下载 `.tgz` 与 `SHA256SUMS` 并校验后安装：
+
 ```sh
-dsh plugin --profile web add @flowboard/dsh@alpha
+dsh plugin --profile web add ./flowboard-dsh-*.tgz
 dsh web
 ```
 
@@ -72,8 +74,8 @@ dsh web
 默认数据保存在 `$DSH_HOME/flowboard`；未设置 `DSH_HOME` 时为 `~/.dsh/flowboard`。升级和卸载插件不会自动删除该目录。
 
 ```sh
-# 升级最新 Alpha
-dsh plugin --profile web add --force @flowboard/dsh@alpha
+# 升级已下载的 Alpha
+dsh plugin --profile web add --force ./flowboard-dsh-*.tgz
 
 # 卸载插件
 dsh plugin --profile web remove @flowboard/dsh
