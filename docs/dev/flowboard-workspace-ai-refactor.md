@@ -189,7 +189,7 @@ sequenceDiagram
 
 动态 Host 的音频上传调用只返回 `jobId`，转写状态通过独立短调用轮询，避免将上传、排队和 ASR 完成塞进一次 `host.call` 导致 `transcription timed out`。静态与动态 Client 都只展示转写结果，不再写入或提交 Composer。
 
-静态 Client 同样不直接跨端口访问 Flowboard API：音频经 Typert Remote 交给 Host 上传。浏览器 VAD 已负责截流，Whisper/Worker 不再叠加固定窗口或延迟聚合；每个完成结果立即写入 utterance 和会议文字稿。默认转写使用随包多语言 `ggml-small`、中文语言提示和同一会议最近 utterance 的有界 prompt，静态与动态 Client 都使用带低通滤波的 sinc 重采样生成 16 kHz WAV。
+静态 Client 同样不直接跨端口访问 Flowboard API：音频经 Typert Remote 交给 Host 上传。浏览器 VAD 已负责截流，Whisper/Worker 不再叠加固定窗口或延迟聚合；每个完成结果立即写入 utterance 和会议文字稿。默认转写使用随包多语言 `ggml-small` 和中文语言参数，静态与动态 Client 都使用带低通滤波的 sinc 重采样生成 16 kHz WAV。禁止把历史识别结果作为下一段 Whisper prompt，避免错误词在长会议中被循环强化；上下文连续性由读取完整会议稿的 Supervisor 负责。
 
 ### 6.2 AI 参与模式
 
@@ -216,6 +216,7 @@ AI 不可自动执行：删除实体、修改成员权限、修改团队结构�
 - Base64 上传大小扣除末尾填充，票据字节数与实际 PUT 一致。
 - `clientSegmentId` 保证重复上传幂等。
 - 每段转录独立进入任务队列，慢 ASR 不阻塞 Host RPC。
+- Worker 使用两个有界并发槽执行 Whisper 推理，并按任务领取顺序写回 utterance；提升短片段吞吐的同时不打乱会议时间线。
 - MeetingCoordinator 合并未消费通知，Supervisor 忙碌时在下一 Step 接收 steering，不等待上一 Turn 完成。
 - `meeting.finalize` 在转写仍执行、分析水位落后或存在未决意图时拒绝结束。
 
@@ -290,3 +291,15 @@ SQLite 是当前本地和小团队部署的事实源；本轮不虚构 PostgreSQ
 - [x] Whisper 运行时和模型随 server 包发布，浏览器直接编码 PCM WAV
 - [x] README 与所有架构文档和源码一致
 - [x] `pnpm run check`、`pnpm run build`、manifest 校验通过
+
+## 十一、即时行动与内容工作台
+
+本轮把“先填表再工作”的后台系统体验改成“先开始、再整理”的 AI 协作体验：
+
+- 首页主操作是一键开始会议，不要求填写标题、项目或 AI 模式；系统自动使用第一个可写项目，完全没有项目时自动创建“未归档会议”临时项目，标题使用当前时间，并默认启用安全操作自动执行。
+- 左侧数量只使用中性文字，不使用红色 Badge；数量用于导航信息密度，不承担告警语义。
+- 会议内容区以总结为主：左侧展示 Markdown 总结、决议和风险，右侧显示最近转录、Supervisor 处理状态与醒目的结束会议按钮，并允许展开全部或收起；下方分别展示用户意图、AI 回复与提问、会议资料和 AI 操作。
+- AI 问题复用会议意图账本，以 `payload.origin=assistant` 和 `payload.question` 区分；AI 主动回复使用 `meeting_ai_actions(kind=note)`，不新增数据库表。用户回答后修订或终结同一问题的 `intent_key`。
+- AI 水位展示固定为三态：最新转录高于 `deliveredSequence` 时为“待投递”，投递高于 `analyzedSequence` 时为“AI 正在分析”，两者追平时为“AI 已追平”。会议详情的第二次范围快照必须合并会议实体、绑定、意图和资料关联，禁止用较新的 cursor 搭配旧水位造成漏刷新。
+- 项目、任务和资料等安全可逆创建遵循“先行动”原则。非关键字段缺失时创建带临时名称的实体，后续通过乐观锁修订；权限、无可写范围、删除和不可逆操作仍必须停下确认。
+- Markdown 文档使用独立内容路由和整页编辑器。属性弹窗只维护标题、类型、链接和项目关联，不再承载正文。

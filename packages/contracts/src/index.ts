@@ -195,6 +195,8 @@ export interface MeetingIntentPayload {
   projectId?: string
   projectIds?: string[]
   title: string
+  origin?: 'user' | 'assistant'
+  question?: string
   summary?: string
   content?: string
   assigneeId?: string
@@ -409,6 +411,8 @@ const meetingIntentPayload = z.object({
   projectId: id.optional(),
   projectIds: idList.min(1).optional(),
   title: shortText,
+  origin: z.enum(['user', 'assistant']).optional(),
+  question: text.optional(),
   summary: text.optional(),
   content: text.optional(),
   assigneeId: id.optional(),

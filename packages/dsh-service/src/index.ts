@@ -59,6 +59,18 @@ export class FlowboardService extends TypertRemoteService {
       }, 'flowboard.embeddedRuntime')
     }
     registerFlowboardTools(ctx, this.client)
+    ctx.effect(() => (ctx.get('systemPrompt') as {
+      context(value: { name: string; order: number; text: string }): () => void
+    }).context({
+      name: 'flowboard:act-first',
+      order: 210,
+      text: [
+        '# Flowboard 即时行动原则',
+        '对创建项目、任务、资料、会议等安全且可逆的操作，先调用工具执行，再用结果继续沟通。',
+        '名称、负责人、日期、描述等非关键字段缺失时使用“未命名”或空值创建临时实体，不要因此只提问而不行动。',
+        '用户后续补充或纠正时，先读取最新 version，再更新同一实体。只有缺少可写团队/项目、权限不足、删除或不可逆操作时才暂停并询问。',
+      ].join('\n'),
+    }), 'flowboard.actFirstContext')
     const coordinator = new MeetingCoordinator(
       ctx,
       this.client,

@@ -6,7 +6,7 @@ describe('bundled whisper runtime', () => {
     const resolved = resolveWhisperCommand({})
     expect(resolved.command).toMatch(/vendor\/whisper\/linux-x64\/bin\/whisper-cli$/)
     expect(resolved.args).toEqual(expect.arrayContaining(['-m', expect.stringMatching(/ggml-small\.bin$/), '-l', 'zh', '-np', '-nt']))
-    expect(resolved.promptFlag).toBe('--prompt')
+    expect(resolved).not.toHaveProperty('promptFlag')
     expect(resolved.env?.LD_LIBRARY_PATH).toMatch(/vendor\/whisper\/linux-x64\/lib/)
   })
 

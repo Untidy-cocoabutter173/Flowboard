@@ -58,4 +58,13 @@ describe('六个业务页面', () => {
   ])('%s 页面可完整渲染', (_name, view, expected) => {
     expect(renderToStaticMarkup(view())).toContain(expected)
   })
+
+  it('Markdown 资料使用整页编辑工作台', () => {
+    const html = renderToStaticMarkup(
+      <LibraryView snapshot={snapshot} projectId={null} command={command} openItemId="library-1" />,
+    )
+    expect(html).toContain('发布说明.md')
+    expect(html).toContain('Markdown 正文')
+    expect(html).toContain('已保存')
+  })
 })

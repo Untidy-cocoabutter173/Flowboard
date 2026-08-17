@@ -79,4 +79,25 @@ describe('FlowboardController', () => {
     expect(transcription).toHaveBeenCalledOnce()
     expect(snapshotRemote).toHaveBeenCalledOnce()
   })
+
+  it('会议详情刷新使用同一 cursor 下的最新 AI 水位和意图', async () => {
+    const base = snapshot(7)
+    base.meetings = [{ id: 'meeting-1', tenantId: 'tenant-1', teamId: 'team-1', title: '会议', status: 'live', settings: { automation: 'execute', feedback: 'activity', answerQuestions: true, silenceSec: 3 }, transcript: '', summary: '', decisions: [], risks: [], startedAt: '', endedAt: null, version: 1, createdAt: '', updatedAt: '' }]
+    base.meetingAgentBindings = [{ meetingId: 'meeting-1', sessionId: 'session-1', state: 'active', deliveredSequence: 2, analyzedSequence: 1, createdAt: '', updatedAt: '' }]
+    const detail = structuredClone(base)
+    detail.cursor = 8
+    detail.meetingAgentBindings[0]!.deliveredSequence = 4
+    detail.meetingAgentBindings[0]!.analyzedSequence = 3
+    detail.meetingIntents = [{ id: 'intent-1', meetingId: 'meeting-1', intentKey: 'question', kind: 'note', status: 'clarifying', payload: { title: '需要确认吗？', origin: 'assistant', question: '需要确认吗？' }, evidenceFromSequence: 3, evidenceToSequence: 3, revision: 1, subagentId: null, entityType: null, entityId: null, error: null, createdAt: '', updatedAt: '' }]
+    const remoteSnapshot = vi.fn(async (request: string) => ok(JSON.parse(request).meetingId === undefined ? base : detail))
+    const controller = new FlowboardController(new FlowboardRemoteClient({ snapshot: remoteSnapshot } as unknown as FlowboardRemotePort))
+    controllers.push(controller)
+    controller.navigate({ area: 'meetings', meetingId: 'meeting-1' })
+    await controller.refresh()
+    expect(controller.getSnapshot().snapshot).toMatchObject({
+      cursor: 8,
+      meetingAgentBindings: [{ deliveredSequence: 4, analyzedSequence: 3 }],
+      meetingIntents: [{ id: 'intent-1' }],
+    })
+  })
 })

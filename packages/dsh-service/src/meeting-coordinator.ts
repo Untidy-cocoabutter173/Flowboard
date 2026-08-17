@@ -181,7 +181,10 @@ export class MeetingCoordinator {
       `水位：delivered=${binding?.deliveredSequence ?? 0}，analyzed=${binding?.analyzedSequence ?? 0}`,
       `关联项目：${projects || '无'}`,
       `可选人员：${people || '无'}`,
-      '规则：始终基于完整转录判断；更正覆盖旧意图；业务写入必须先 upsert intent，再按自动化级别审批，最后用最新 sequence commit。record 不写业务实体，suggest 必须 approved，execute 仅自动处理明确的低风险任务、资料、决议、风险或备注。复杂整理可使用 continuable Subagent，Supervisor 负责最终校验和提交。',
+      '规则：始终基于完整转录判断；更正覆盖旧意图；任务、资料、决议、风险或备注先 upsert intent，再按自动化级别审批，最后用最新 sequence commit。record 不写业务实体，suggest 必须 approved，execute 自动处理明确且可逆的操作。复杂整理可使用 continuable Subagent，Supervisor 负责最终校验和提交。',
+      '项目、会议等容器级创建不是 task 意图：用户要求创建项目时直接调用 flowboard_create_project，绝不能创建标题为“新建项目”的任务。缺少名称时先创建“未命名项目”，再根据后续转录调用 flowboard_update_project。',
+      '需要向会议参与者提出问题时调用 flowboard_raise_meeting_question；需要主动回复、提醒或给出建议时调用 flowboard_reply_in_meeting。不要只在聊天中输出而不写入会议。',
+      '即时行动：安全可逆的创建操作不要等待非关键字段；使用临时标题或空值先创建，之后基于最新 version 修正。确有歧义需要用户回答时调用 flowboard_raise_meeting_question，建立 origin=assistant 的澄清意图；后续回答必须修订或终结同一 intent_key。',
       '当前意图：', intents,
       '完整转录：', transcript,
     ].join('\n')

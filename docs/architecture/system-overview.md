@@ -90,9 +90,9 @@ sequenceDiagram
   H->>A: 最终总结/ended（其他产物已由 intent 提交）
 ```
 
-转录只进入权威会议稿。MeetingCoordinator 在每个 Step 注入完整转录与意图账本，并合并未消费通知；Agent 忙碌时使用 steering，空闲时启动 follow-up。`meeting.finalize` 会拒绝仍有转写任务、遗漏水位或未决意图的请求。
+转录只进入权威会议稿。MeetingCoordinator 在每个 Step 注入完整转录与意图账本，并合并未消费通知；Agent 忙碌时使用 steering，空闲时启动 follow-up。页面以“待投递 / AI 正在分析 / AI 已追平”展示 `latest/delivered/analyzed` 三段水位；详情范围快照会整体替换该会议的绑定和意图，避免 cursor 先行导致 UI 漏更新。`meeting.finalize` 会拒绝仍有转写任务、遗漏水位或未决意图的请求。
 
-静态与动态 Client 都通过 Web Audio 收集单声道 PCM，包含 350ms pre-roll、800ms 静音切段与 15 秒连续语音上限，并通过带低通滤波的 sinc 重采样编码为 16 kHz 16-bit WAV。这个 VAD 分段是唯一截流边界；Host 上传成功后只返回 `jobId`，Whisper 每完成一段就立即写入 utterance，不再叠加固定窗口或延迟聚合。Whisper 不需要 ffmpeg 解码 MediaRecorder 的 WebM/Opus，上传票据的 `expected_size/content_type` 也与实际 PUT 严格一致。⚡
+静态与动态 Client 都通过 Web Audio 收集单声道 PCM，包含 350ms pre-roll、800ms 静音切段与 15 秒连续语音上限，并通过带低通滤波的 sinc 重采样编码为 16 kHz 16-bit WAV。这个 VAD 分段是唯一截流边界；Host 上传成功后只返回 `jobId`，Whisper 每完成一段就立即写入 utterance，不再叠加固定窗口或延迟聚合。Worker 用两个有界并发槽处理短片段，结果仍按任务领取顺序写回。Whisper 不接收历史转录 prompt，防止识别错误在长会议中自我强化；完整语义上下文只由 Supervisor 消费。Whisper 不需要 ffmpeg 解码 MediaRecorder 的 WebM/Opus，上传票据的 `expected_size/content_type` 也与实际 PUT 严格一致。⚡
 
 ## 静态与动态交付 ⚡
 
@@ -100,9 +100,9 @@ sequenceDiagram
 
 `pnpm dev` 依次校验动态降级源码、类型检查、构建静态 Host/Client，幂等维护 profile `node_modules` 中指向当前 `dsh-service/dsh-client` workspace 的两个软链接，再以裸包名临时 patch 启动 `dsh web`。裸包名很关键：ClientModuleRegistry 只会为可解析 package root 的 `dsh.client` manifest 发布浏览器 bundle，直接加载 `lib/index.js` 绝对路径只能启动 Host 半边。静态 `FlowboardService` 默认内嵌 API、SQLite 与 Worker，DSH dispose 时统一关闭；脚本不执行插件安装/重装，也不改 profile manifest。默认 Web/API 地址分别为 `127.0.0.1:3080` 与 `127.0.0.1:8787`。🆕
 
-`@flowboard/server` 的发布清单包含 Linux x64 `whisper-cli`、所需共享库、许可证和多语言 `ggml-small` 模型。默认以中文识别，每个任务从同一会议最近的已确认 utterance 取得有界 prompt，避免 VAD 短片段反复猜语言或丢失人名、项目名和术语上下文。默认会议转写不依赖系统 Whisper、ffmpeg、模型目录或环境变量；`FLOWBOARD_TRANSCRIBE_LANGUAGE` 可覆盖默认语言，`FLOWBOARD_TRANSCRIBE_COMMAND` 只作为独立 Worker 的高级覆盖。浏览器输出 WAV 使音频链无需另带编解码器。🆕
+`@flowboard/server` 的发布清单包含 Linux x64 `whisper-cli`、所需共享库、许可证和多语言 `ggml-small` 模型。默认固定以中文识别，每段只使用当前 WAV，不回灌之前的模型输出。默认会议转写不依赖系统 Whisper、ffmpeg、模型目录或环境变量；`FLOWBOARD_TRANSCRIBE_LANGUAGE` 可覆盖默认语言，`FLOWBOARD_TRANSCRIBE_COMMAND` 只作为独立 Worker 的高级覆盖。浏览器输出 WAV 使音频链无需另带编解码器。🆕
 
-动态插件是实验与应急入口。`dynamic/flowboard.host.js` 和 `dynamic/flowboard.client.js` 是函数体而不是模块，不经过 TypeScript、JSX 或 bundler；Client 禁止 `fetch`、Node 和 import。音频上传只返回 `jobId`，Client 通过 `transcription` Host handler 独立轮询，避免长时间占用一次 `host.call`。动态版保留关键能力，但不要求与静态版逐像素一致。⚡
+动态插件是实验与应急入口。`dynamic/flowboard.host.js` 和 `dynamic/flowboard.client.js` 是函数体而不是模块，不经过 TypeScript、JSX 或 bundler；Client 禁止 `fetch`、Node 和 import。音频上传只返回 `jobId`，Client 通过 `transcription` Host handler 独立轮询，避免长时间占用一次 `host.call`；会议打开期间每秒合并一次详情水位、意图与回复。动态版保留关键能力，但不要求与静态版逐像素一致。⚡
 
 之所以调整交付优先级，是因为完整 Jira、多维表格和一致设计系统需要类型检查、组件复用与稳定构建；动态函数体继续作为无需打包的诊断和应急通道。
 

@@ -1,18 +1,17 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import {
   Button,
   IconEditOutline16,
   IconPlusOutline16,
   IconTrashOutline16,
   Input,
-  TextArea,
 } from "../ui.tsx";
 import type {
   FlowboardSnapshot,
   LibraryItemType,
   LibraryItemView,
 } from "@flowboard/contracts";
-import { MarkdownEditor } from "./markdown.tsx";
+import { MarkdownDocument } from "./markdown.tsx";
 import {
   ConfirmDialog,
   Empty,
@@ -29,7 +28,7 @@ import css from "../flowboard.module.css";
 
 type Dialog =
   | { type: "create" }
-  | { type: "edit" | "delete" | "markdown"; item: LibraryItemView }
+  | { type: "edit" | "delete"; item: LibraryItemView }
   | null;
 
 export function LibraryView({
@@ -37,24 +36,24 @@ export function LibraryView({
   projectId,
   command,
   openItemId = null,
+  onOpenItem,
 }: {
   snapshot: FlowboardSnapshot;
   projectId: string | null;
   command: CommandHandler;
   openItemId?: string | null;
+  onOpenItem?: (itemId: string | null) => void;
 }) {
   const [dialog, setDialog] = useState<Dialog>(null);
-  const openedItemId = useRef<string | null>(null);
-  useEffect(() => {
-    if (openItemId === null || openedItemId.current === openItemId) return;
-    const item = snapshot.library.find(
-      (value) => value.id === openItemId && value.type === "doc",
-    );
-    if (item !== undefined) {
-      openedItemId.current = openItemId;
-      setDialog({ type: "markdown", item });
-    }
-  }, [openItemId, snapshot.library]);
+  const [localOpenItemId, setLocalOpenItemId] = useState<string | null>(null);
+  const selectedItemId = openItemId ?? localOpenItemId;
+  const openedItem = snapshot.library.find(
+    (item) => item.id === selectedItemId && item.type === "doc",
+  );
+  const openItem = (itemId: string | null) => {
+    if (onOpenItem === undefined) setLocalOpenItemId(itemId);
+    else onOpenItem(itemId);
+  };
   const linked = new Set(
     snapshot.links.projectLibrary
       .filter((link) => projectId === null || link.projectId === projectId)
@@ -67,7 +66,7 @@ export function LibraryView({
   const editor = dialog?.type === "edit" ? dialog.item : undefined;
   return (
     <section>
-      <PageHeader
+      {openedItem === undefined ? <><PageHeader
         title={projectId === null ? "资料" : "项目资料"}
         meta={`${items.length} 项资料`}
         actions={
@@ -92,7 +91,7 @@ export function LibraryView({
               <button
                 type="button"
                 className={css.rowMain}
-                onClick={() => setDialog({ type: "markdown", item })}
+                onClick={() => openItem(item.id)}
               >
                 <strong>{item.title}</strong>
                 <span>{item.content || "空白 Markdown 文档"}</span>
@@ -131,6 +130,20 @@ export function LibraryView({
       </div>
       {items.length === 0 && (
         <Empty title="还没有资料" detail="会议整理形成的文档也会出现在这里。" />
+      )}</> : (
+        <MarkdownDocument
+          title={openedItem.title}
+          fileName={`${openedItem.title.replace(/\s+/g, "-").toLowerCase()}.md`}
+          value={openedItem.content}
+          meta={`Markdown · 更新于 ${formatDate(openedItem.updatedAt, false)}`}
+          onBack={() => openItem(null)}
+          onEditProperties={() => setDialog({ type: "edit", item: openedItem })}
+          onSave={(content) => command({
+            type: "library.update",
+            expectedVersion: openedItem.version,
+            payload: { id: openedItem.id, content },
+          })}
+        />
       )}
       {(dialog?.type === "create" || dialog?.type === "edit") && (
         <EntityModal
@@ -157,20 +170,19 @@ export function LibraryView({
               (item) => item.id === projectIds[0],
             );
             if (project === undefined) throw new Error("请选择项目");
-            if (editor === undefined)
-              await command({
+            if (editor === undefined) {
+              const result = await command({
                 type: "library.create",
                 payload: {
                   teamId: project.teamId,
                   projectIds,
                   type,
                   title: String(data.get("title")),
-                  ...(type === "doc"
-                    ? { content: String(data.get("content") ?? "") }
-                    : { url: String(data.get("url") ?? "") }),
+                  ...(type === "doc" ? { content: "" } : { url: String(data.get("url") ?? "") }),
                 },
-              });
-            else
+              }) as { entityId?: string };
+              if (type === "doc" && result.entityId !== undefined) openItem(result.entityId);
+            } else
               await command({
                 type: "library.update",
                 expectedVersion: editor.version,
@@ -178,7 +190,6 @@ export function LibraryView({
                   id: editor.id,
                   projectIds,
                   title: String(data.get("title")),
-                  content: String(data.get("content") ?? ""),
                   url: String(data.get("url") || "") || null,
                 },
               });
@@ -230,26 +241,7 @@ export function LibraryView({
               <Input name="url" defaultValue={editor?.url ?? ""} />
             </Field>
           </div>
-          <Field label="Markdown 正文">
-            <TextArea name="content" rows={10} defaultValue={editor?.content} />
-          </Field>
         </EntityModal>
-      )}
-      {dialog?.type === "markdown" && (
-        <MarkdownEditor
-          open
-          title={dialog.item.title}
-          fileName={`${dialog.item.title.replace(/\s+/g, "-").toLowerCase()}.md`}
-          value={dialog.item.content}
-          onClose={() => setDialog(null)}
-          onSave={(content) =>
-            command({
-              type: "library.update",
-              expectedVersion: dialog.item.version,
-              payload: { id: dialog.item.id, content },
-            })
-          }
-        />
       )}
       {dialog?.type === "delete" && (
         <ConfirmDialog

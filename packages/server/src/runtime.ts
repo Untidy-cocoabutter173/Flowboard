@@ -1,10 +1,9 @@
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { setTimeout as delay } from 'node:timers/promises'
 import { buildServer } from './application.ts'
 import { openDatabase } from './database.ts'
 import { SqliteFlowboardRepository } from './repository.ts'
-import { CommandTranscriber, processNextTranscription } from './worker.ts'
+import { CommandTranscriber, runTranscriptionWorkers } from './worker.ts'
 import { resolveWhisperCommand } from './whisper-runtime.ts'
 
 export interface FlowboardRuntimeOptions {
@@ -35,7 +34,7 @@ export async function startFlowboardRuntime(options: FlowboardRuntimeOptions = {
     ...(options.logger === undefined ? {} : { logger: options.logger }),
   })
   const whisper = resolveWhisperCommand()
-  const transcriber = new CommandTranscriber(whisper.command, whisper.args, whisper.env, whisper.promptFlag)
+  const transcriber = new CommandTranscriber(whisper.command, whisper.args, whisper.env)
   const abort = new AbortController()
 
   try {
@@ -45,16 +44,7 @@ export async function startFlowboardRuntime(options: FlowboardRuntimeOptions = {
     throw error
   }
 
-  const worker = (async () => {
-    while (!abort.signal.aborted) {
-      if (await processNextTranscription(repository, transcriber, abort.signal)) continue
-      try {
-        await delay(1_000, undefined, { signal: abort.signal })
-      } catch (error) {
-        if (!abort.signal.aborted) throw error
-      }
-    }
-  })()
+  const worker = runTranscriptionWorkers(repository, transcriber, abort.signal)
 
   return {
     apiBase,

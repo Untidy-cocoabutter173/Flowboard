@@ -16,6 +16,27 @@ function command(client: FlowboardHttpClient, request: CommandRequest, signal: A
   return client.command(request, signal)
 }
 
+async function writableScope(
+  client: FlowboardHttpClient,
+  signal: AbortSignal,
+  projectId?: string,
+  teamId?: string,
+) {
+  const snapshot = await client.snapshot({}, signal)
+  const project = projectId === undefined
+    ? snapshot.projects.find(item => item.role !== 'viewer' && (teamId === undefined || item.teamId === teamId))
+    : snapshot.projects.find(item => item.id === projectId && item.role !== 'viewer')
+  const team = teamId === undefined
+    ? snapshot.teams.find(item => item.id === project?.teamId) ?? snapshot.teams.find(item => item.role !== 'viewer')
+    : snapshot.teams.find(item => item.id === teamId && item.role !== 'viewer')
+  return { snapshot, project, team }
+}
+
+function provisionalProjectKey(callId: unknown): string {
+  const suffix = String(callId).replace(/[^a-z0-9]/gi, '').toUpperCase().slice(-7)
+  return `TMP${suffix || 'PROJECT'}`.slice(0, 12)
+}
+
 export function registerFlowboardTools(ctx: Context, client: FlowboardHttpClient): void {
   ctx.tools.register(defineTool({
     name: 'flowboard_snapshot',
@@ -35,11 +56,55 @@ export function registerFlowboardTools(ctx: Context, client: FlowboardHttpClient
   }))
 
   ctx.tools.register(defineTool({
-    name: 'flowboard_create_task',
-    description: '为项目创建任务，可关联当前会议。创建后会留下可审计的会议 AI 操作记录。',
+    name: 'flowboard_create_project',
+    description: '立即创建项目。名称、代号或团队缺失时使用可修订的临时值，不因非关键字段缺失而等待用户。',
     parameters: {
-      project_id: { type: 'string', required: true },
-      title: { type: 'string', required: true },
+      team_id: { type: 'string' }, key: { type: 'string' }, name: { type: 'string' },
+      description: { type: 'string' }, color: { type: 'string' },
+    },
+    output: jsonOutput,
+    execute: async (args, exec) => {
+      const { team } = await writableScope(client, exec.signal, undefined, args.team_id)
+      if (team === undefined) throw new Error('没有可写团队，无法创建项目')
+      return command(client, {
+        idempotencyKey: key(exec.callId, 'project.create'), type: 'project.create',
+        payload: {
+          teamId: team.id,
+          key: args.key ?? provisionalProjectKey(exec.callId),
+          name: args.name?.trim() || '未命名项目',
+          ...(args.description === undefined ? {} : { description: args.description }),
+          ...(args.color === undefined ? {} : { color: args.color }),
+        },
+      }, exec.signal)
+    },
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'flowboard_update_project',
+    description: '使用乐观锁修订项目临时名称、代号、说明或颜色。',
+    parameters: {
+      id: { type: 'string', required: true }, expected_version: { type: 'integer', required: true },
+      key: { type: 'string' }, name: { type: 'string' }, description: { type: 'string' }, color: { type: 'string' },
+    },
+    output: jsonOutput,
+    execute: async (args, exec) => command(client, {
+      idempotencyKey: key(exec.callId, 'project.update'), type: 'project.update', expectedVersion: args.expected_version,
+      payload: {
+        id: args.id,
+        ...(args.key === undefined ? {} : { key: args.key }),
+        ...(args.name === undefined ? {} : { name: args.name }),
+        ...(args.description === undefined ? {} : { description: args.description }),
+        ...(args.color === undefined ? {} : { color: args.color }),
+      },
+    }, exec.signal),
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'flowboard_create_task',
+    description: '立即为项目创建任务，可关联当前会议。项目或标题缺失时推断当前可写项目并使用临时标题，后续再修订。',
+    parameters: {
+      project_id: { type: 'string' },
+      title: { type: 'string' },
       summary: { type: 'string' },
       assignee_id: { type: 'string' },
       due_at: { type: 'string' },
@@ -48,12 +113,15 @@ export function registerFlowboardTools(ctx: Context, client: FlowboardHttpClient
     },
     output: jsonOutput,
     execute: async (args, exec) => {
+      const { project } = await writableScope(client, exec.signal, args.project_id)
+      if (project === undefined) throw new Error('没有可写项目，无法创建任务')
+      const title = args.title?.trim() || '未命名任务'
       const result = await command(client, {
         idempotencyKey: key(exec.callId, 'task.create'),
         type: 'task.create',
         payload: {
-          projectId: args.project_id,
-          title: args.title,
+          projectId: project.id,
+          title,
           ...(args.summary === undefined ? {} : { summary: args.summary }),
           ...(args.assignee_id === undefined ? {} : { assigneeId: args.assignee_id }),
           ...(args.due_at === undefined ? {} : { dueAt: args.due_at }),
@@ -61,7 +129,7 @@ export function registerFlowboardTools(ctx: Context, client: FlowboardHttpClient
           ...(args.meeting_id === undefined ? {} : { meetingIds: [args.meeting_id] }),
         },
       }, exec.signal)
-      if (args.meeting_id !== undefined) await recordAction(client, exec, args.meeting_id, 'task', `创建任务：${args.title}`, result.entityType, result.entityId)
+      if (args.meeting_id !== undefined) await recordAction(client, exec, args.meeting_id, 'task', `创建任务：${title}`, result.entityType, result.entityId)
       return result
     },
   }))
@@ -98,6 +166,7 @@ export function registerFlowboardTools(ctx: Context, client: FlowboardHttpClient
       kind: { type: 'string', enum: ['task', 'document', 'decision', 'risk', 'note'], required: true },
       title: { type: 'string', required: true }, summary: { type: 'string' }, content: { type: 'string' },
       project_id: { type: 'string' }, project_ids: { type: 'array', items: { type: 'string' } },
+      origin: { type: 'string', enum: ['user', 'assistant'] }, question: { type: 'string' },
       assignee_id: { type: 'string' }, due_at: { type: 'string' }, priority: { type: 'string', enum: ['low', 'medium', 'high', 'urgent'] },
       evidence_from_sequence: { type: 'integer', required: true }, evidence_to_sequence: { type: 'integer', required: true },
     },
@@ -108,6 +177,8 @@ export function registerFlowboardTools(ctx: Context, client: FlowboardHttpClient
         meetingId: args.meeting_id, intentKey: args.intent_key, kind: args.kind,
         payload: {
           title: args.title,
+          ...(args.origin === undefined ? {} : { origin: args.origin }),
+          ...(args.question === undefined ? {} : { question: args.question }),
           ...(args.summary === undefined ? {} : { summary: args.summary }),
           ...(args.content === undefined ? {} : { content: args.content }),
           ...(args.project_id === undefined ? {} : { projectId: args.project_id }),
@@ -120,6 +191,45 @@ export function registerFlowboardTools(ctx: Context, client: FlowboardHttpClient
         evidenceToSequence: args.evidence_to_sequence,
       },
     }, exec.signal),
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'flowboard_raise_meeting_question',
+    description: 'AI 在会议中提出一个需要用户确认的问题，并作为 assistant 来源的澄清意图持续跟踪。用户回答后修订或终结同一 intent_key。',
+    parameters: {
+      meeting_id: { type: 'string', required: true }, intent_key: { type: 'string', required: true },
+      question: { type: 'string', required: true }, project_id: { type: 'string' },
+      evidence_from_sequence: { type: 'integer', required: true }, evidence_to_sequence: { type: 'integer', required: true },
+    },
+    output: jsonOutput,
+    execute: async (args, exec) => {
+      const created = await command(client, {
+        idempotencyKey: key(exec.callId, 'meeting.question.upsert'), type: 'meeting.intent.upsert',
+        payload: {
+          meetingId: args.meeting_id, intentKey: args.intent_key, kind: 'note',
+          payload: {
+            title: args.question, question: args.question, origin: 'assistant',
+            ...(args.project_id === undefined ? {} : { projectId: args.project_id }),
+          },
+          evidenceFromSequence: args.evidence_from_sequence, evidenceToSequence: args.evidence_to_sequence,
+        },
+      }, exec.signal)
+      return command(client, {
+        idempotencyKey: key(exec.callId, 'meeting.question.clarifying'), type: 'meeting.intent.status',
+        payload: { id: created.entityId, revision: created.version, status: 'clarifying' },
+      }, exec.signal)
+    },
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'flowboard_reply_in_meeting',
+    description: 'AI 作为会议参与者给出简洁回复、提醒或建议，并持久化到会议的“AI 回复与提问”列表。不要用它代替应立即执行的业务工具。',
+    parameters: {
+      meeting_id: { type: 'string', required: true },
+      reply: { type: 'string', required: true },
+    },
+    output: jsonOutput,
+    execute: async (args, exec) => recordAction(client, exec, args.meeting_id, 'note', args.reply),
   }))
 
   ctx.tools.register(defineTool({
@@ -182,19 +292,46 @@ export function registerFlowboardTools(ctx: Context, client: FlowboardHttpClient
   }))
 
   ctx.tools.register(defineTool({
-    name: 'flowboard_create_document',
-    description: '创建会议资料或项目资料，并建立项目与会议关联。',
+    name: 'flowboard_update_meeting',
+    description: '使用乐观锁修订会议名称、总结、决议或风险，可用于把即时会议的临时标题改为正式标题。',
     parameters: {
-      team_id: { type: 'string', required: true }, project_ids: { type: 'array', items: { type: 'string' }, required: true },
-      title: { type: 'string', required: true }, content: { type: 'string', required: true }, meeting_id: { type: 'string' },
+      id: { type: 'string', required: true }, expected_version: { type: 'integer', required: true },
+      title: { type: 'string' }, summary: { type: 'string' },
+      decisions: { type: 'array', items: { type: 'string' } }, risks: { type: 'array', items: { type: 'string' } },
+    },
+    output: jsonOutput,
+    execute: async (args, exec) => command(client, {
+      idempotencyKey: key(exec.callId, 'meeting.update'), type: 'meeting.update', expectedVersion: args.expected_version,
+      payload: {
+        id: args.id,
+        ...(args.title === undefined ? {} : { title: args.title }),
+        ...(args.summary === undefined ? {} : { summary: args.summary }),
+        ...(args.decisions === undefined ? {} : { decisions: args.decisions }),
+        ...(args.risks === undefined ? {} : { risks: args.risks }),
+      },
+    }, exec.signal),
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'flowboard_create_document',
+    description: '立即创建会议资料或项目资料。范围、标题或正文缺失时推断当前可写项目并使用可修订的空白文档。',
+    parameters: {
+      team_id: { type: 'string' }, project_ids: { type: 'array', items: { type: 'string' } },
+      title: { type: 'string' }, content: { type: 'string' }, meeting_id: { type: 'string' },
     },
     output: jsonOutput,
     execute: async (args, exec) => {
+      const requestedProject = args.project_ids?.[0]
+      const { snapshot, project, team } = await writableScope(client, exec.signal, requestedProject, args.team_id)
+      const projectIds = args.project_ids ?? (project === undefined ? [] : [project.id])
+      const selectedTeam = team ?? snapshot.teams.find(item => item.id === project?.teamId)
+      if (selectedTeam === undefined || projectIds.length === 0) throw new Error('没有可写项目，无法创建资料')
+      const title = args.title?.trim() || '未命名资料'
       const result = await command(client, {
         idempotencyKey: key(exec.callId, 'library.create'), type: 'library.create',
-        payload: { teamId: args.team_id, projectIds: args.project_ids, type: 'doc', title: args.title, content: args.content, ...(args.meeting_id === undefined ? {} : { sourceMeetingId: args.meeting_id }) },
+        payload: { teamId: selectedTeam.id, projectIds, type: 'doc', title, content: args.content ?? '', ...(args.meeting_id === undefined ? {} : { sourceMeetingId: args.meeting_id }) },
       }, exec.signal)
-      if (args.meeting_id !== undefined) await recordAction(client, exec, args.meeting_id, 'document', `创建资料：${args.title}`, result.entityType, result.entityId)
+      if (args.meeting_id !== undefined) await recordAction(client, exec, args.meeting_id, 'document', `创建资料：${title}`, result.entityType, result.entityId)
       return result
     },
   }))

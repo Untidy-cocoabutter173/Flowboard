@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDatabase } from '../src/database.ts'
 import { SqliteFlowboardRepository } from '../src/repository.ts'
-import { processNextTranscription } from '../src/worker.ts'
+import { processNextTranscription, runTranscriptionWorkers } from '../src/worker.ts'
 
 describe('转写 worker', () => {
   let directory: string
@@ -48,10 +48,37 @@ describe('转写 worker', () => {
     expect(await processNextTranscription(repository, { transcribe: async () => '' })).toBe(false)
   })
 
-  it('把同一会议最近的转录作为下一段识别提示词', async () => {
+  it('不会把历史识别结果回灌给下一段 Whisper', async () => {
     const item = await job('项目代号天枢，负责人是张三。')
     const transcribe = vi.fn(async () => '继续确认发布时间。')
     await processNextTranscription(repository, { transcribe })
-    expect(transcribe).toHaveBeenCalledWith(item.path, undefined, '项目代号天枢，负责人是张三。')
+    expect(transcribe).toHaveBeenCalledWith(item.path, undefined)
+  })
+
+  it('并发识别短片段并按领取顺序写回', async () => {
+    const first = Promise.withResolvers<string>()
+    const second = Promise.withResolvers<string>()
+    const jobs = [
+      { id: 'job-1', audioPath: join(directory, 'one.wav') },
+      { id: 'job-2', audioPath: join(directory, 'two.wav') },
+    ]
+    const finished: string[] = []
+    const fakeRepository = {
+      claimTranscription: vi.fn(() => jobs.shift()),
+      finishTranscription: vi.fn((id: string) => finished.push(id)),
+      failTranscription: vi.fn(),
+    }
+    const transcribe = vi.fn((path: string) => path.endsWith('one.wav') ? first.promise : second.promise)
+    const abort = new AbortController()
+    const running = runTranscriptionWorkers(fakeRepository as never, { transcribe }, abort.signal, 2, 5)
+
+    await vi.waitFor(() => expect(transcribe).toHaveBeenCalledTimes(2))
+    second.resolve('第二段')
+    await new Promise(resolve => setTimeout(resolve, 10))
+    expect(finished).toEqual([])
+    first.resolve('第一段')
+    await vi.waitFor(() => expect(finished).toEqual(['job-1', 'job-2']))
+    abort.abort()
+    await running
   })
 })

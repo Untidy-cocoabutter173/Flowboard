@@ -5,7 +5,6 @@ export interface WhisperCommand {
   command: string
   args: string[]
   env?: NodeJS.ProcessEnv
-  promptFlag?: string
 }
 
 function parseArgs(value: string | undefined): string[] {
@@ -31,7 +30,6 @@ export function resolveWhisperCommand(environment: NodeJS.ProcessEnv = process.e
   return {
     command: resolve(root, 'bin/whisper-cli'),
     args: ['-m', resolve(root, 'models/ggml-small.bin'), '-l', language, '-np', '-nt'],
-    promptFlag: '--prompt',
     env: {
       ...environment,
       LD_LIBRARY_PATH: inheritedLibraryPath === undefined || inheritedLibraryPath === ''

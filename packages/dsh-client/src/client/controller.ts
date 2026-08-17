@@ -38,6 +38,10 @@ export interface FlowboardState {
 
 const emptyRuntime = (): MeetingRuntime => ({ meetingId: null, recording: false, uploading: false, stopping: false, candidate: '', error: null })
 
+function replaceMeetingItems<T>(items: T[], detailItems: T[], belongsToMeeting: (item: T) => boolean): T[] {
+  return [...items.filter(item => !belongsToMeeting(item)), ...detailItems.filter(item => belongsToMeeting(item))]
+}
+
 function encodeBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer)
   let binary = ''
@@ -76,12 +80,20 @@ export class FlowboardController implements HostObservable<FlowboardState> {
   async refresh(): Promise<void> {
     let snapshot = await this.remote.snapshot({}, this.abort.signal)
     if (this.state.route.area === 'meetings' && this.state.route.meetingId !== null) {
-      const detail = await this.remote.snapshot({ meetingId: this.state.route.meetingId }, this.abort.signal)
+      const meetingId = this.state.route.meetingId
+      const detail = await this.remote.snapshot({ meetingId }, this.abort.signal)
       snapshot = {
         ...snapshot,
         cursor: Math.max(snapshot.cursor, detail.cursor),
+        meetings: replaceMeetingItems(snapshot.meetings, detail.meetings, item => item.id === meetingId),
         utterances: detail.utterances,
         aiActions: detail.aiActions,
+        meetingAgentBindings: replaceMeetingItems(snapshot.meetingAgentBindings, detail.meetingAgentBindings, item => item.meetingId === meetingId),
+        meetingIntents: replaceMeetingItems(snapshot.meetingIntents, detail.meetingIntents, item => item.meetingId === meetingId),
+        links: {
+          ...snapshot.links,
+          meetingLibrary: replaceMeetingItems(snapshot.links.meetingLibrary, detail.links.meetingLibrary, item => item.meetingId === meetingId),
+        },
       }
     }
     let route = this.state.route

@@ -5,7 +5,6 @@ import {
   Badge,
   Button,
   ConfigProvider,
-  Input,
   Menu,
   Tooltip,
   type MenuProps,
@@ -13,14 +12,19 @@ import {
 } from "antd";
 import {
   AppstoreOutlined,
+  DownOutlined,
   CalendarOutlined,
   DashboardOutlined,
+  EditOutlined,
   FileTextOutlined,
   HomeOutlined,
   PlayCircleOutlined,
+  QuestionCircleOutlined,
   ReloadOutlined,
+  RobotOutlined,
   StopOutlined,
   TeamOutlined,
+  UpOutlined,
   UnorderedListOutlined,
   UserOutlined,
 } from "@ant-design/icons";
@@ -43,7 +47,7 @@ import type {
 import { BoardView } from "./domain/board.tsx";
 import { CalendarView } from "./domain/calendar.tsx";
 import { LibraryView } from "./domain/library.tsx";
-import { MarkdownEditor } from "./domain/markdown.tsx";
+import { MarkdownEditor, MarkdownPreview } from "./domain/markdown.tsx";
 import { MeetingsView } from "./domain/meetings.tsx";
 import { PeopleView } from "./domain/people.tsx";
 import { ProjectMembersView } from "./domain/project-members.tsx";
@@ -51,8 +55,6 @@ import { ProjectsView } from "./domain/projects.tsx";
 import { TeamsView } from "./domain/teams.tsx";
 import {
   Empty,
-  EntityModal,
-  Field,
   PageHeader,
   SelectControl,
   formatDate,
@@ -156,7 +158,7 @@ function Sidebar({
     <span className={css.menuLabel}>
       <span>{label}</span>
       {count !== undefined && (
-        <Badge count={count} showZero overflowCount={999} size="small" />
+        <span className={css.menuCount}>{count > 999 ? "999+" : count}</span>
       )}
     </span>
   );
@@ -381,17 +383,17 @@ function ProjectHeader({
 function Home({
   snapshot,
   personId,
-  command,
   startMeeting,
+  startInstantMeeting,
   navigate,
 }: {
   snapshot: FlowboardSnapshot;
   personId: string | null;
-  command: (value: ClientCommand) => Promise<unknown>;
   startMeeting(meeting: MeetingView): Promise<void>;
+  startInstantMeeting(): Promise<void>;
   navigate(route: FlowboardRoute): void;
 }) {
-  const [create, setCreate] = useState(false);
+  const [starting, setStarting] = useState(false);
   const today = new Date().toISOString().slice(0, 10);
   const person = snapshot.people.find((item) => item.id === personId);
   const tasks = snapshot.tasks
@@ -406,22 +408,47 @@ function Home({
     )
     .slice(0, 6);
   const active = snapshot.projects.slice(0, 5);
+  const liveMeeting = snapshot.meetings.find((meeting) => meeting.status === "live");
+  const canStartMeeting =
+    liveMeeting !== undefined ||
+    snapshot.projects.some((item) => item.role !== "viewer") ||
+    snapshot.teams.some((item) => item.role !== "viewer");
+  const launchMeeting = async () => {
+    if (starting) return;
+    setStarting(true);
+    try {
+      if (liveMeeting === undefined) await startInstantMeeting();
+      else await startMeeting(liveMeeting);
+    } finally {
+      setStarting(false);
+    }
+  };
   return (
     <section>
       <PageHeader
         title={`你好，${person?.name ?? snapshot.actor.name}`}
         meta="今天的任务、日程和项目进展"
-        actions={
-          <Button
-            type="primary"
-            icon={<PlayCircleOutlined />}
-            disabled={snapshot.projects.length === 0}
-            onClick={() => setCreate(true)}
-          >
-            开始 AI 会议
-          </Button>
-        }
       />
+      <div className={css.meetingLaunch} data-live={liveMeeting !== undefined}>
+        <span className={css.meetingLaunchIcon}>
+          {liveMeeting === undefined ? <RobotOutlined /> : <span className={css.liveDot} />}
+        </span>
+        <div>
+          <small>{liveMeeting === undefined ? "AI 会议" : "正在进行"}</small>
+          <strong>{liveMeeting?.title ?? "开始一场会议"}</strong>
+          <span>{liveMeeting === undefined ? "准备就绪" : formatDate(liveMeeting.startedAt ?? liveMeeting.createdAt)}</span>
+        </div>
+        <Button
+          type="primary"
+          size="large"
+          icon={<PlayCircleOutlined />}
+          loading={starting}
+          disabled={!canStartMeeting}
+          onClick={() => void launchMeeting().catch(() => undefined)}
+        >
+          {liveMeeting === undefined ? "立即开始" : "返回会议"}
+        </Button>
+      </div>
       <div className={css.metrics}>
         <article>
           <span>待办任务</span>
@@ -517,74 +544,6 @@ function Home({
           {snapshot.aiActions.length === 0 && <Empty title="暂无 AI 操作" />}
         </section>
       </div>
-      <EntityModal
-        open={create}
-        title="开始 AI 会议"
-        submitLabel="创建并开始"
-        onClose={() => setCreate(false)}
-        onSubmit={async (data) => {
-          const project = snapshot.projects.find(
-            (item) => item.id === String(data.get("projectId")),
-          );
-          if (project === undefined) throw new Error("请选择项目");
-          const result = (await command({
-            type: "meeting.create",
-            payload: {
-              teamId: project.teamId,
-              projectIds: [project.id],
-              title: String(data.get("title")),
-              settings: {
-                automation: String(data.get("automation")) as
-                  "record" | "suggest" | "execute",
-                silenceSec: Number(data.get("silenceSec")),
-              },
-            },
-          })) as { entityId: string };
-          const meeting =
-            snapshot.meetings.find((item) => item.id === result.entityId) ??
-            ({ id: result.entityId, version: 1 } as MeetingView);
-          await startMeeting(meeting);
-        }}
-      >
-        <Field label="会议主题">
-          <Input name="title" required autoFocus />
-        </Field>
-        <Field label="关联项目">
-          <SelectControl
-            name="projectId"
-            ariaLabel="关联项目"
-            defaultValue={snapshot.projects[0]?.id}
-            options={snapshot.projects.map((project) => ({
-              value: project.id,
-              label: project.name,
-              meta: project.key,
-            }))}
-          />
-        </Field>
-        <div className={css.formGrid}>
-          <Field label="AI 参与">
-            <SelectControl
-              name="automation"
-              ariaLabel="AI 参与模式"
-              defaultValue="suggest"
-              options={[
-                { value: "record", label: "只记录" },
-                { value: "suggest", label: "建议后执行" },
-                { value: "execute", label: "自动执行安全操作" },
-              ]}
-            />
-          </Field>
-          <Field label="静音提交（秒）">
-            <input
-              name="silenceSec"
-              type="number"
-              min="1"
-              max="30"
-              defaultValue="4"
-            />
-          </Field>
-        </div>
-      </EntityModal>
     </section>
   );
 }
@@ -655,25 +614,46 @@ function MeetingDetail({
   meeting,
   command,
   navigate,
+  onStop,
 }: {
   snapshot: FlowboardSnapshot;
   meeting: MeetingView;
   command(value: ClientCommand): Promise<unknown>;
   navigate(route: FlowboardRoute): void;
+  onStop(meeting: MeetingView): Promise<void>;
 }) {
   const [editing, setEditing] = useState<"transcript" | "summary" | null>(null);
-  const utterances = snapshot.utterances.filter(
+  const [transcriptExpanded, setTranscriptExpanded] = useState(false);
+  const [transcriptCollapsed, setTranscriptCollapsed] = useState(false);
+  const utterances = snapshot.utterances
+    .filter((item) => item.meetingId === meeting.id)
+    .sort((a, b) => a.sequence - b.sequence);
+  const visibleUtterances = transcriptExpanded ? utterances : utterances.slice(-6);
+  const allActions = snapshot.aiActions.filter(
     (item) => item.meetingId === meeting.id,
   );
-  const actions = snapshot.aiActions.filter(
-    (item) => item.meetingId === meeting.id,
-  );
+  const replies = allActions.filter((item) => item.kind === "note");
+  const actions = allActions.filter((item) => item.kind !== "note");
   const binding = snapshot.meetingAgentBindings.find(
     (item) => item.meetingId === meeting.id,
   );
   const intents = snapshot.meetingIntents.filter(
     (item) => item.meetingId === meeting.id,
   );
+  const assistantQuestions = intents.filter(
+    (item) => item.payload.origin === "assistant",
+  );
+  const userIntents = intents.filter(
+    (item) => item.payload.origin !== "assistant",
+  );
+  const latestSequence = utterances.at(-1)?.sequence ?? 0;
+  const deliveredSequence = binding?.deliveredSequence ?? 0;
+  const analyzedSequence = binding?.analyzedSequence ?? 0;
+  const progress = latestSequence > deliveredSequence
+    ? { state: "pending", label: `待投递 ${latestSequence - deliveredSequence} 条` }
+    : deliveredSequence > analyzedSequence
+      ? { state: "analyzing", label: `AI 正在分析 ${deliveredSequence - analyzedSequence} 条` }
+      : { state: "caught-up", label: "AI 已追平" };
   const documents = new Set(
     snapshot.links.meetingLibrary
       .filter((link) => link.meetingId === meeting.id)
@@ -686,7 +666,11 @@ function MeetingDetail({
         meta={`${meeting.status} · ${formatDate(meeting.startedAt ?? meeting.createdAt)}`}
         actions={
           <>
-            <Button size="small" onClick={() => setEditing("transcript")}>
+            <Button
+              size="small"
+              icon={<EditOutlined />}
+              onClick={() => setEditing("transcript")}
+            >
               编辑转录稿
             </Button>
             <Button
@@ -699,65 +683,137 @@ function MeetingDetail({
           </>
         }
       />
-      <div className={css.meetingDetail}>
-        <section>
-          <h3>转录稿</h3>
-          {utterances.map((item) => (
-            <p key={item.id}>
-              <time>#{item.sequence}</time>
-              {item.text}
-            </p>
-          ))}
-          {utterances.length === 0 && meeting.transcript !== "" && (
-            <p>{meeting.transcript}</p>
+      <div
+        className={css.meetingWorkspace}
+        data-transcript-collapsed={transcriptCollapsed}
+      >
+        <section className={css.meetingSummaryPanel}>
+          <header>
+            <div>
+              <span>会议记录</span>
+              <h2>核心总结</h2>
+            </div>
+            <span className={css.agentState} data-active={binding?.state === "active"}>
+              <RobotOutlined />
+              {binding?.state === "active" ? progress.label : "AI 整理结果"}
+            </span>
+          </header>
+          {meeting.summary === "" ? (
+            <div className={css.summaryPlaceholder}>
+              <RobotOutlined />
+              <strong>{meeting.status === "live" ? "总结正在随会议形成" : "暂无会议总结"}</strong>
+              <span>决议、行动项和风险会在这里持续沉淀。</span>
+            </div>
+          ) : (
+            <MarkdownPreview value={meeting.summary} />
           )}
-          {utterances.length === 0 && meeting.transcript === "" && (
-            <Empty title="等待会议转录" />
-          )}
+          <div className={css.meetingOutcomes}>
+            <section>
+              <h3>决议 <span>{meeting.decisions.length}</span></h3>
+              {meeting.decisions.map((item) => <p key={item}>{item}</p>)}
+              {meeting.decisions.length === 0 && <small>尚未形成明确决议</small>}
+            </section>
+            <section>
+              <h3>风险 <span>{meeting.risks.length}</span></h3>
+              {meeting.risks.map((item) => <p key={item}>{item}</p>)}
+              {meeting.risks.length === 0 && <small>暂无已识别风险</small>}
+            </section>
+          </div>
         </section>
-        <aside>
-          <h3>AI 秘书</h3>
-          <p>
-            {binding?.state === "active" ? "持续监听" : "未连接"} · 已分析 {binding?.analyzedSequence ?? 0}/{binding?.deliveredSequence ?? 0}
-          </p>
-          <h3>会议意图</h3>
-          {intents.map((item) => (
-            <p key={item.id}>
-              <span className={css.intentStatus}>{item.status}</span>
-              {item.payload.title}
-            </p>
-          ))}
-          {intents.length === 0 && <p>暂无待处理意图</p>}
-          <h3>核心总结</h3>
-          <p>{meeting.summary || "会议结束后由 AI 整理"}</p>
-          <h3>决议</h3>
-          {meeting.decisions.map((item) => (
-            <p key={item}>{item}</p>
-          ))}
-          <h3>风险</h3>
-          {meeting.risks.map((item) => (
-            <p key={item}>{item}</p>
-          ))}
-          <h3>会议资料</h3>
-          {snapshot.library
-            .filter((item) => documents.has(item.id))
-            .map((item) => (
-              <button
-                className={css.documentLink}
-                type="button"
-                key={item.id}
-                onClick={() =>
-                  navigate({ area: "library", libraryId: item.id })
-                }
+        <aside className={css.transcriptRail}>
+          <header>
+            <div>
+              <h3>实时转录</h3>
+              <span>{utterances.length} 条 · 已分析 {analyzedSequence}/{deliveredSequence}</span>
+            </div>
+            <div className={css.transcriptHeaderActions}>
+              {meeting.status === "live" && (
+                <Button danger type="primary" size="middle" className={css.transcriptEndButton!} icon={<StopOutlined />} onClick={() => void onStop(meeting)}>
+                  结束会议
+                </Button>
+              )}
+              <Tooltip title={transcriptCollapsed ? "展开转录" : "收起转录"}>
+                <Button
+                  type="text"
+                  size="small"
+                  aria-label={transcriptCollapsed ? "展开转录" : "收起转录"}
+                  icon={transcriptCollapsed ? <DownOutlined /> : <UpOutlined />}
+                  onClick={() => setTranscriptCollapsed((value) => !value)}
+                />
+              </Tooltip>
+            </div>
+          </header>
+          {!transcriptCollapsed && <div className={css.agentProgress} data-state={progress.state}><RobotOutlined />{progress.label}</div>}
+          {!transcriptCollapsed && <>
+            <div className={css.transcriptList}>
+              {visibleUtterances.map((item) => (
+                <article key={item.id}>
+                  <time>#{item.sequence}</time>
+                  <p>{item.text}</p>
+                </article>
+              ))}
+              {utterances.length === 0 && meeting.transcript !== "" && <p>{meeting.transcript}</p>}
+              {utterances.length === 0 && meeting.transcript === "" && <Empty title="等待会议转录" />}
+            </div>
+            {utterances.length > 6 && (
+              <Button
+                type="text"
+                size="small"
+                className={css.transcriptToggle!}
+                onClick={() => setTranscriptExpanded((value) => !value)}
               >
-                {item.title}
+                {transcriptExpanded ? "只看最近 6 条" : `查看全部 ${utterances.length} 条`}
+              </Button>
+            )}
+          </>}
+        </aside>
+        <div className={css.meetingLowerGrid}>
+          <section>
+            <header><UnorderedListOutlined /><h3>用户意图</h3><span>{userIntents.length}</span></header>
+            {userIntents.map((item) => (
+              <article key={item.id}>
+                <span className={css.intentStatus}>{item.status}</span>
+                <div><strong>{item.payload.title}</strong><small>证据 #{item.evidenceFromSequence}-#{item.evidenceToSequence}</small></div>
+              </article>
+            ))}
+            {userIntents.length === 0 && <Empty title="暂无用户意图" />}
+          </section>
+          <section>
+            <header><QuestionCircleOutlined /><h3>AI 回复与提问</h3><span>{assistantQuestions.length + replies.length}</span></header>
+            {assistantQuestions.map((item) => (
+              <article key={item.id} className={css.assistantQuestion}>
+                <span className={css.intentStatus}>{item.status}</span>
+                <div><strong>{item.payload.question ?? item.payload.title}</strong><small>AI 提问 · 等待会议中确认</small></div>
+              </article>
+            ))}
+            {replies.map((item) => (
+              <article key={item.id} className={css.assistantReply}>
+                <span className={css.replyLabel}>回复</span>
+                <div><strong>{item.summary}</strong><small>{formatDate(item.createdAt)}</small></div>
+              </article>
+            ))}
+            {assistantQuestions.length + replies.length === 0 && <Empty title="暂无 AI 回复或提问" />}
+          </section>
+          <section>
+            <header><FileTextOutlined /><h3>会议资料</h3><span>{documents.size}</span></header>
+            {snapshot.library.filter((item) => documents.has(item.id)).map((item) => (
+              <button className={css.documentLink} type="button" key={item.id} onClick={() => navigate({ area: "library", libraryId: item.id })}>
+                <span>MD</span><strong>{item.title}</strong>
               </button>
             ))}
-          <h3>AI 操作</h3>
-          {actions.map((item) => (
-            <p key={item.id}>{item.summary}</p>
-          ))}
-        </aside>
+            {documents.size === 0 && <Empty title="暂无会议资料" />}
+          </section>
+          <section>
+            <header><RobotOutlined /><h3>AI 操作</h3><span>{actions.length}</span></header>
+            {actions.map((item) => (
+              <article key={item.id}>
+                <span className={css.actionState} data-ok={item.ok}>{item.ok ? "完成" : "失败"}</span>
+                <div><strong>{item.summary}</strong><small>{formatDate(item.createdAt)}</small></div>
+              </article>
+            ))}
+            {actions.length === 0 && <Empty title="暂无 AI 操作" />}
+          </section>
+        </div>
       </div>
       {editing !== null && (
         <MarkdownEditor
@@ -834,17 +890,53 @@ export function FlowboardView(
                 : "团队管理"
               : "项目列表";
   const startMeeting = async (meeting: MeetingView) => {
-    await props.command({
-      type: "meeting.update",
-      expectedVersion: meeting.version,
-      payload: { id: meeting.id, status: "live" },
-    });
+    if (meeting.status !== "live") {
+      await props.command({
+        type: "meeting.update",
+        expectedVersion: meeting.version,
+        payload: { id: meeting.id, status: "live" },
+      });
+    }
     await props.command({
       type: "meeting.agent.bind",
       payload: { id: meeting.id, sessionId },
     });
     props.setMeetingRuntime(sessionId, { meetingId: meeting.id, error: null });
     props.navigate({ area: "meetings", meetingId: meeting.id });
+  };
+  const startInstantMeeting = async () => {
+    let project = snapshot.projects.find((item) => item.role !== "viewer");
+    if (project === undefined) {
+      const team = snapshot.teams.find((item) => item.role !== "viewer");
+      if (team === undefined) throw new Error("没有可写团队，无法开始会议");
+      const projectResult = await props.command({
+        type: "project.create",
+        payload: {
+          teamId: team.id,
+          key: `MTG${Date.now().toString(36).slice(-7)}`.toUpperCase(),
+          name: "未归档会议",
+          description: "由一键会议自动创建，可在会后重命名或归档。",
+        },
+      }) as { entityId: string; version: number };
+      project = {
+        id: projectResult.entityId,
+        version: projectResult.version,
+        teamId: team.id,
+        role: "owner",
+      } as ProjectView;
+    }
+    const now = new Date();
+    const title = `会议 · ${now.toLocaleDateString("zh-CN", { month: "long", day: "numeric" })} ${now.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false })}`;
+    const result = await props.command({
+      type: "meeting.create",
+      payload: {
+        teamId: project.teamId,
+        projectIds: [project.id],
+        title,
+        settings: { automation: "execute" },
+      },
+    }) as { entityId: string; version: number };
+    await startMeeting({ id: result.entityId, version: result.version, status: "scheduled" } as MeetingView);
   };
   const stopMeeting = async (meeting: MeetingView) => {
     props.setMeetingRuntime(sessionId, {
@@ -859,8 +951,8 @@ export function FlowboardView(
       <Home
         snapshot={snapshot}
         personId={selectedPersonId}
-        command={props.command}
         startMeeting={startMeeting}
+        startInstantMeeting={startInstantMeeting}
         navigate={props.navigate}
       />
     );
@@ -902,6 +994,7 @@ export function FlowboardView(
           snapshot={snapshot}
           projectId={project.id}
           command={props.command}
+          onOpenItem={(libraryId) => props.navigate({ area: "library", libraryId })}
         />
       ) : (
         <ProjectMembersView
@@ -931,6 +1024,7 @@ export function FlowboardView(
           meeting={meeting}
           command={props.command}
           navigate={props.navigate}
+          onStop={stopMeeting}
         />
       );
   } else if (route.area === "library")
@@ -940,6 +1034,7 @@ export function FlowboardView(
         projectId={null}
         command={props.command}
         openItemId={route.libraryId}
+        onOpenItem={(libraryId) => props.navigate({ area: "library", libraryId })}
       />
     );
   else if (route.area === "my")
@@ -1096,18 +1191,26 @@ export function FlowboardMeetingDock(
       </span>
       <p>{runtime.candidate || "转录会持续写入会议稿，由 Supervisor 统一分析"}</p>
       <span className={css.meetingAgentProgress}>
-        已分析 {binding?.analyzedSequence ?? 0}/{binding?.deliveredSequence ?? 0}
+        {binding === undefined
+          ? "AI 正在连接"
+          : binding.deliveredSequence > binding.analyzedSequence
+            ? `AI 正在分析 ${binding.deliveredSequence - binding.analyzedSequence} 条`
+            : "AI 已追平"}
+        {binding !== undefined ? ` · ${binding.analyzedSequence}/${binding.deliveredSequence}` : ""}
         {pendingIntents > 0 ? ` · ${pendingIntents} 个意图待处理` : ""}
       </span>
       {runtime.error !== null && <em>{runtime.error}</em>}
       {active && (
         <Button
-          size="small"
+          danger
+          type="primary"
+          size="middle"
+          className={css.endMeetingButton!}
           icon={<StopOutlined />}
           disabled={runtime.stopping}
           onClick={() => props.setMeetingRuntime(sessionId, { stopping: true, error: null })}
         >
-          停止
+          结束会议
         </Button>
       )}
     </div>

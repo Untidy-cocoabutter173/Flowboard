@@ -18,7 +18,7 @@ for (const file of files) {
   if (file.endsWith('.client.js') && /\bfetch\s*\(/.test(source)) throw new Error(`${file}: client fetch is forbidden`)
   if (!/^return\s+\{/m.test(source)) throw new Error(`${file}: must be a function body returning a plugin`)
   if (file.endsWith('.client.js')) {
-    for (const marker of ['Jira 面板', '任务列表', '项目成员', 'field.create', 'project.member.remove', '保存 Markdown']) {
+    for (const marker of ['Jira 面板', '任务列表', '项目成员', 'field.create', 'project.member.remove', 'data-flowboard-document', '立即开始']) {
       if (!source.includes(marker)) throw new Error(`${file}: missing dynamic workspace capability ${marker}`)
     }
     for (const marker of ['meeting.agent.bind', 'meetingAgentBindings', 'meetingIntents']) {
@@ -28,7 +28,7 @@ for (const file of files) {
       throw new Error(`${file}: meeting transcription must not drive the Composer`)
     }
   } else {
-    for (const marker of ['flowboard_upsert_meeting_intent', 'flowboard_commit_meeting_intent', 'agent/turn-stopping']) {
+    for (const marker of ['flowboard_create_project', 'flowboard_raise_meeting_question', 'flowboard_reply_in_meeting', 'flowboard_upsert_meeting_intent', 'flowboard_commit_meeting_intent', 'agent/turn-stopping']) {
       if (!source.includes(marker)) throw new Error(`${file}: missing dynamic meeting Supervisor capability ${marker}`)
     }
   }
