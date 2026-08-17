@@ -40,7 +40,7 @@ jobs:
         run: pnpm run check
 
       - name: Install compatible DSH CLI
-        run: pnpm add --global @deepseek-ai/dsh@0.1.0-rc.6
+        run: npm install --global @deepseek-ai/dsh@0.1.0-rc.6
 
       - name: Pack the public plugin
         run: pnpm run plugin:pack

@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [0.1.2-alpha.3] - 2026-08-17
+
+### Fixed
+
+- 将兼容的 DSH CLI 固定为工作区开发依赖，修复 GitHub runner 无法执行 pnpm 全局安装的问题。
+
 ## [0.1.2-alpha.2] - 2026-08-17
 
 ### Fixed
