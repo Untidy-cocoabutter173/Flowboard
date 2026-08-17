@@ -4,6 +4,15 @@
 
 ## [Unreleased]
 
+## [0.1.2-alpha.2] - 2026-08-17
+
+### Fixed
+
+- 为尚未生成的 Typert Remote 声明补充编译期类型边界，修复干净 checkout 的 Client 类型检查。
+- 测试环境直接解析内部 workspace 源码，避免依赖构建后才存在的 `lib` 入口。
+
+## [0.1.2-alpha.1] - 2026-08-17
+
 ### Changed
 
 - 将 Flowboard 收敛为由 DSH 托管的单一官方插件 `@flowboard/dsh`。
@@ -18,11 +27,6 @@
 - DSH 原生插件架构与发布规范。
 - manifest、Whisper、真实安装启动和 release 全链路校验。
 - 开源贡献、安全、行为准则、第三方声明及 GitHub 模板和工作流。
-
-## [0.1.2-alpha.1] - 2026-08-17
-
-### Added
-
 - 团队任务、项目看板、多维任务表、资料和会议工作空间。
 - 浏览器 VAD、本地 Whisper 转录、会议 Supervisor 和意图账本。
 - 权限、幂等、乐观锁、事务、审计及 SQLite 持久化。

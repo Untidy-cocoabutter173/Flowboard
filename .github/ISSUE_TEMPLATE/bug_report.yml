@@ -10,7 +10,7 @@ body:
     id: version
     attributes:
       label: Flowboard 版本
-      placeholder: 例如 0.1.2-alpha.1
+      placeholder: 例如 0.1.2-alpha.2
     validations:
       required: true
   - type: input
