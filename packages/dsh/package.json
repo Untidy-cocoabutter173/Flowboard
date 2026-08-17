@@ -1,6 +1,6 @@
 {
   "name": "@flowboard/dsh",
-  "version": "0.1.2-alpha.3",
+  "version": "0.1.2-alpha.4",
   "author": "构序科技",
   "description": "运行在 DeepSeek Harness 中的开源办公协作与团队管理插件",
   "type": "module",

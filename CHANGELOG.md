@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [0.1.2-alpha.4] - 2026-08-17
+
+### Fixed
+
+- 将 npm publish 参数改为显式本地 tarball 路径，避免 npm 将构建产物误判为 Git 仓库简写。
+
 ## [0.1.2-alpha.3] - 2026-08-17
 
 ### Fixed

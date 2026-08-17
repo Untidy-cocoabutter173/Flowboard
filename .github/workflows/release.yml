@@ -53,7 +53,7 @@ jobs:
         run: sha256sum flowboard-dsh-*.tgz > SHA256SUMS
 
       - name: Publish @flowboard/dsh Alpha with npm provenance
-        run: npm publish artifacts/flowboard-dsh-*.tgz --access public --tag alpha --provenance
+        run: npm publish ./artifacts/flowboard-dsh-*.tgz --access public --tag alpha --provenance
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

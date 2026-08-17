@@ -4,7 +4,7 @@
 
 Flowboard 是运行在 DeepSeek Harness（DSH）中的开源办公协作与团队管理插件。它把目标、会议、人员、Agent 执行、进度和资料放进同一套办公逻辑，让工作从讨论到执行再到沉淀持续流动。任务不是产品的边界，而是支撑这套办公方式的工作骨架。
 
-> **Alpha**：`0.1.2-alpha.3` 仍处于早期验证阶段，接口、数据结构和安装方式可能不兼容变化。适合本地体验和小团队试用，不应按稳定生产版本部署。
+> **Alpha**：`0.1.2-alpha.4` 仍处于早期验证阶段，接口、数据结构和安装方式可能不兼容变化。适合本地体验和小团队试用，不应按稳定生产版本部署。
 
 ## 不管理，即管理
 
@@ -88,7 +88,7 @@ dsh web
 每个 Alpha tag 都会生成 GitHub prerelease，直接附带完整插件 tarball 与 `SHA256SUMS`。不经过 npm 也可以固定版本安装：
 
 ```sh
-FLOWBOARD_VERSION=0.1.2-alpha.3
+FLOWBOARD_VERSION=0.1.2-alpha.4
 curl -LO "https://github.com/juntaoding/Flowboard/releases/download/v${FLOWBOARD_VERSION}/flowboard-dsh-${FLOWBOARD_VERSION}.tgz"
 curl -LO "https://github.com/juntaoding/Flowboard/releases/download/v${FLOWBOARD_VERSION}/SHA256SUMS"
 sha256sum -c SHA256SUMS
