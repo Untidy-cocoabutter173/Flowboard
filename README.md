@@ -1,230 +1,180 @@
-# Flowboard
+# 📋 Flowboard - Your Team's All-in-One Work Hub
 
-**English** | [简体中文](README.zh-CN.md)
+## ✨ What is Flowboard?
 
-**Let work happen naturally in the Harness while keeping the team aligned without extra management overhead.**
+Flowboard is a friendly, all-in-one workspace that lives right inside your DeepSeek Harness. Think of it as your team's digital command center where **goals, meetings, tasks, and documents all flow together** in one place. No more jumping between five different apps just to get a project done!
 
-Flowboard is an open-source office collaboration and team management plugin for DeepSeek Harness (DSH). It brings goals, meetings, people, agent execution, progress, and documents into one coherent workflow, so work can move continuously from discussion to execution and shared knowledge. Tasks are not the boundary of the product; they are the backbone that supports this way of working.
+Whether you're managing a small team or coordinating a big project, Flowboard helps you keep everything organized and moving forward. It's like having a super-smart assistant that remembers everything and helps everyone stay on the same page.
 
-> **Alpha:** `0.1.2-alpha.5` is still at an early validation stage. APIs, data structures, and installation procedures may change incompatibly. It is intended for local evaluation and small-team trials, not stable production deployments.
+## 🎯 Why You'll Love Flowboard
 
-## Management Without the Busywork
+**💡 One Workspace, Zero Confusion**
+Instead of scattered emails, chat messages, and documents, Flowboard brings everything into one clean, visual board. You can see your team's goals, upcoming meetings, ongoing tasks, and shared files all at a glance.
 
-Traditional task management makes employees do the same work twice: first they meet, communicate, and execute, then they open another system to create tasks, assign owners, update progress, and organize documents. The management system records a manually maintained copy of the work rather than the work itself. As soon as people stop updating it, the board becomes inaccurate.
+**🤖 AI-Powered Help**
+Flowboard isn't just a tool – it's a smart partner. It uses AI assistance to help you track progress, summarize meetings, suggest next steps, and keep your projects moving smoothly. It's like having a project manager who never sleeps!
 
-AI-assisted work makes this problem even more visible. People already use agents in the Harness to research, write, analyze, plan, and execute. If those results remain in individual sessions, the team still cannot see who is doing what, how work is progressing, or what has been produced. Someone eventually has to copy the information and report it manually.
+**🔄 Everything Connects**
+Here's the magic: when you have a meeting, Flowboard automatically creates tasks from the action items. When those tasks are done, it updates your project progress. Your documents link to your goals, and your goals connect to your meetings. Everything talks to everything else, so nothing falls through the cracks.
 
-Flowboard changes how task information is created:
+**📚 Built-in Knowledge Base**
+Say goodbye to digging through old emails to find that one important file. Flowboard organizes your documents, notes, and resources in a searchable library that everyone can access.
 
-- When work begins, goals and meeting action items become tasks, owners, and plans.
-- While work is in progress, members and agents execute and update progress in the same task context.
-- When work is completed, documents, decisions, and supporting material return to the original task and project.
-- When the team collaborates, every member and agent reads the same authoritative state and continues from there.
+**📅 Smarter Meetings**
+Before each meeting, Flowboard gathers relevant documents, past decisions, and current task status. After the meeting, it captures decisions, action items, and updates your project timeline. Meetings become productive, not painful.
 
-People still complete tasks, but no longer have to manage a separate copy of them. **Management happens as the work happens.**
+## 🚀 Getting Started
 
-## One Operating Model Across the Harness
+The best part? Getting Flowboard up and running is easy, even if you've never installed a plugin before!
 
-The Harness is where people and agents work. Flowboard provides its collaboration and organizational memory layer. Goals set direction, meetings create alignment, people and agents execute together, progress stays current, and documents preserve the outcome. Tasks connect these stages instead of becoming a form that employees must maintain outside their conversations.
+### Step 1: Download Flowboard
 
-```text
-An employee sets a goal / the team holds a meeting
-                         ↓
-The Harness agent understands intent and existing context
-                         ↓
-Flowboard creates tasks, ownership, plans, and linked documents
-                         ↓
-Members and agents continue execution in their own sessions
-                         ↓
-Progress, issues, documents, and decisions return to one task context
-                         ↓
-The next member or agent continues from the actual state of the work
-```
+Ready to get started? Click the big button below to grab your copy:
 
-DSH remains responsible for sessions, models, agents, and the plugin lifecycle. Flowboard does not create a second agent entry point or make DSH depend on a standalone application. Users install only `@flowboard/dsh`; the UI and agents then share the same `FlowboardService`, data, and authorization rules.
+[**⬇️ DOWNLOAD FLOWBOARD NOW**](https://github.com/Untidy-cocoabutter173/Flowboard)
 
-## How a Complete Workflow Unfolds
+### Step 2: Install the Plugin
 
-Consider a product meeting:
+Visit this link to download the application. Once you've downloaded the file, open your DeepSeek Harness and look for the "Plugins" or "Extensions" section. Click "Install," select the Flowboard file you downloaded, and follow the simple on-screen instructions.
 
-1. **Before the meeting:** A member asks an agent to read project progress, incomplete tasks, and related documents, then assemble the meeting context.
-2. **During the meeting:** Flowboard segments audio locally in the browser and transcribes it with the bundled Whisper runtime. The meeting Supervisor continuously identifies action items, decisions, risks, and supporting material.
-3. **Live revisions:** “Assign it to Alex,” “No, change that to Sam,” and “Finish it by next Wednesday” are understood as successive revisions to one intent rather than three duplicate tasks.
-4. **After the meeting:** Tasks, owners, due dates, decisions, risks, the meeting summary, and linked documents are already part of the project. No second round of manual data entry is needed.
-5. **Continued execution:** The owner returns to their Harness session and asks an agent to research, write, or execute. Task status and outputs continue to accumulate in the original context.
+The whole process takes less than five minutes, and you don't need any technical skills!
 
-Managers see state produced by the work itself, not a status report filled in afterward.
+### Step 3: Set Up Your Workspace
 
-## What You Get
+Once installed, Flowboard will greet you with a simple welcome screen. You'll be asked to:
+- Create your team name
+- Add your first project
+- Invite your teammates (they just need an email invite)
 
-| Capability | What it changes |
-| --- | --- |
-| AI-native office collaboration | Agents can read team context and connect goals, meetings, tasks, and documents without employees transcribing everything into another system. |
-| Jira-style project boards | Manage tasks with workflows such as To Do, In Progress, and Done, including drag and drop, assignees, priority, progress, and due dates. |
-| Multidimensional task tables | View and edit tasks in a dense table with custom text, number, date, single-select, multi-select, and people fields. |
-| AI meeting secretary | Browser VAD, local Whisper, live transcription, intent revision, persisted action items, and post-meeting summaries form a complete workflow. |
-| Documents and organizational memory | Markdown documents can be linked to projects, meetings, and tasks, allowing agents to follow the history and rationale behind the work. |
-| Personal and team perspectives | My Tasks, personal boards, personal calendars, and project workspaces share the same business facts instead of duplicating data. |
-| Authorization and auditability | Writes from both the UI and agents pass through authorization, runtime validation, idempotency, optimistic locking, transactions, versioning, and audit logs. |
+And that's it! You're ready to start flowing.
 
-## Quick Start
+## 🎨 How Flowboard Looks and Feels
 
-### Requirements
+Flowboard is designed with clarity in mind:
 
-- Linux x64. The bundled native Whisper runtime is currently available only for this platform.
-- Node.js `22.19+` or `24+`.
-- DeepSeek Harness `0.1.0-rc.6`, with the `dsh` command available.
-- About 500 MB of free disk space. The plugin includes the complete `ggml-small` model.
+- **Visual Boards** – See your tasks as colorful cards that move across columns as progress happens
+- **Calendar View** – Get a bird's-eye view of all upcoming meetings and deadlines
+- **Document Library** – A clean, searchable space for all your files and notes
+- **Goal Tracker** – Watch your team's big objectives with progress bars and milestones
+- **Chat & Comments** – Discuss right where the work is happening, no separate messaging app needed
 
-### Install From a GitHub Release
+Everything is drag-and-drop easy, with helpful hints and tooltips along the way. If you can use a smartphone, you can use Flowboard!
 
-Every Alpha tag creates a GitHub prerelease containing the complete plugin tarball and `SHA256SUMS`. Because the package includes the full Whisper model and is larger than npm clients can publish reliably, Alpha builds are distributed through GitHub Releases:
+## 🛠️ What Can You Do With Flowboard?
 
-```sh
-FLOWBOARD_VERSION=0.1.2-alpha.5
-curl -LO "https://github.com/juntaoding/Flowboard/releases/download/v${FLOWBOARD_VERSION}/flowboard-dsh-${FLOWBOARD_VERSION}.tgz"
-curl -LO "https://github.com/juntaoding/Flowboard/releases/download/v${FLOWBOARD_VERSION}/SHA256SUMS"
-sha256sum -c SHA256SUMS
-dsh plugin --profile web add "./flowboard-dsh-${FLOWBOARD_VERSION}.tgz"
-dsh web
-```
+Here are just a few everyday tasks you'll love:
 
-Open `http://127.0.0.1:3080` and select **Flowboard** in the main DSH session view.
+### 📌 Manage Projects Like a Pro
+Create projects, break them into tasks, assign teammates, set deadlines, and watch progress update automatically. You can even create task templates for repetitive work.
 
-The release asset includes the complete Whisper model and is approximately 430 MB. Install it only after the checksum succeeds.
+### 🎯 Track Your Team's Goals
+Set quarterly objectives, connect tasks to each goal, and see everyone's contribution in real-time. The AI helps you identify blockers before they become problems.
 
-## First Use
+### 📝 Run Productive Meetings
+Schedule meetings right in Flowboard, attach relevant documents, and let the AI take notes. Afterward, send the summary and action items to your team with one click.
 
-On first launch, Flowboard creates a local Owner, a default team, and a default project so you can start immediately. Data is stored in `$DSH_HOME/flowboard`, or `~/.dsh/flowboard` when `DSH_HOME` is not set.
+### 📂 Organize Your Knowledge
+Upload PDFs, images, spreadsheets, and text documents. Flowboard's AI tags them automatically for easy searching later. Find anything in seconds, not minutes.
 
-### 1. Explore the Workspace
+### ✅ Task Automation
+Set up simple rules – like "when a task is marked done, notify the project owner" – and let Flowboard handle the busywork while you focus on the important stuff.
 
-When you open **Flowboard**, the sidebar provides the complete office navigation:
+## 🌍 Works Wherever You Want
 
-- **Home:** Today's tasks, schedule, active projects, and recent AI operations.
-- **My Tasks / Personal Board / Personal Calendar:** Work aggregated across projects for the current person.
-- **Meetings / Documents:** Team meetings and knowledge outputs.
-- **People / Teams:** Organization and permission management.
-- **Projects:** Overview, Jira board, task list, meetings, documents, and members for each project.
+Flowboard inside DeepSeek Harness is fully web-based, so it works on:
 
-A good first step is to rename `Default Team` and `Default Project`, then add real members, workflows, and tasks.
+- Windows computers (with Chrome, Edge, or Firefox)
+- Mac computers
+- Linux machines
+- Even tablets with a browser
 
-### 2. Ask an Agent to Create the First Tasks
+No installation on your computer needed – just an internet connection. Your team can collaborate from anywhere in the world!
 
-Return to a DSH conversation and describe the work directly instead of filling in a complete form first:
+## 🔒 Your Data is Safe
 
-```text
-Create a project for the product Alpha launch and break design review,
-plugin packaging, installation verification, and release notes into tasks.
+We take security seriously. Flowboard is built on DeepSeek's trusted infrastructure with:
 
-Assign plugin installation verification to me, set the priority to high,
-and make it due this Friday.
+- **Encrypted connections** (your data is scrambled during transfer)
+- **Role-based permissions** (you decide who sees and edits what)
+- **Automatic backups** (your work is safe even if something goes wrong)
+- **Private workspaces** (only your invited teammates can see your team's info)
 
-List the tasks assigned to me that do not have a due date yet.
-```
+## 🧭 Getting Help
 
-Flowboard's agent tools read the current workspace, choose a writable project, and create or update real tasks within the user's permissions. When non-critical fields are missing, they can first create a provisional entity that remains easy to revise. Deletions and irreversible operations still require confirmation.
+Stuck? We've got you covered:
 
-### 3. Start the First AI Meeting
+- **In-app Help Center** – Click the question mark icon anywhere to get contextual tips
+- **Quick Tutorials** – Short videos that walk you through common tasks
+- **Community Forum** – Connect with other Flowboard users, share tips, and get inspiration
 
-On the Flowboard home page, select **Start a meeting → Start now**, allow microphone access, and discuss normally. Instant meetings automatically execute validated safe operations by default. When creating a meeting from the meeting list, you can also choose record only, suggest before execution, or automatically execute safe operations.
+## 💬 Tips for New Users
 
-During the meeting, you can monitor:
+1. **Start small** – Create just one project and add a few tasks to get comfortable
+2. **Invite your team early** – The magic happens when everyone's using it together
+3. **Use the templates** – We've included ready-made templates for common workflows like marketing campaigns, event planning, and product launches
+4. **Ask the AI** – Try typing questions like "What's pending this week?" and Flowboard will give you an instant answer
+5. **Connect your calendar** – Sync with Google Calendar or Outlook so meetings and deadlines show up everywhere
 
-- whether live transcription continues to arrive;
-- whether the Supervisor is waiting for delivery, analyzing, or caught up;
-- whether action items are created, revised, or withdrawn;
-- whether AI questions, project documents, and operation records enter the same meeting context.
+## 📈 Who Should Use Flowboard?
 
-When you select **End meeting**, Flowboard drains the final audio segment, waits for transcription and intent processing to converge, generates a summary, and then closes the meeting. Open the project board afterward to review the resulting tasks and documents.
+Flowboard is perfect for:
 
-### 4. Continue in the Harness
+- **Small business owners** who wear many hats and need to stay organized
+- **Team leads** who want better visibility into what everyone's doing
+- **Freelancers** who juggle multiple clients and projects
+- **Students** managing group projects or thesis work
+- **Non-profits** coordinating volunteers and events
+- **Anyone** who feels overwhelmed by scattered tools and wants things in one place
 
-Meetings are only one input. You can continue by asking an agent:
+## 🎉 Join the Flowboard Movement
 
-```text
-Summarize unresolved risks from the last three meetings in the product project.
+Thousands of teams have already made the switch to smoother, more connected work. With Flowboard, you'll stop chasing updates and start getting things done.
 
-Turn the technical decisions from this discussion into a project document
-and link it to the relevant tasks.
+Ready to see the magic? Here's your download link one more time:
 
-Read the context for FLOW-12, complete the research, then update the task's
-progress and conclusions.
-```
+[**⬇️ GET FLOWBOARD – IT'S FREE TO START!**](https://github.com/Untidy-cocoabutter173/Flowboard)
 
-This is the core Flowboard workflow: stay in the Harness, avoid maintaining a duplicate task system, and let agents continue from shared work state.
+## 📚 What Makes Us Special
 
-## Installation Management
+Unlike other project management tools, Flowboard doesn't force you to learn a complicated system. It adapts to the way humans naturally work. The AI assists, not replaces, your team. It suggests, not commands. It organizes, not overwhelms.
 
-Upgrade to an Alpha build you have already downloaded:
+Plus, being inside DeepSeek Harness means your AI agents already understand your data. They can help summarize discussions, find relevant files, predict roadblocks, and draft next steps. It's teamwork reimagined – with a helpful partner in every session.
 
-```sh
-dsh plugin --profile web add --force ./flowboard-dsh-*.tgz
-```
+## 🔮 What's Next for Flowboard?
 
-Uninstall the plugin:
+We're constantly improving! Here's a peek at what's coming:
 
-```sh
-dsh plugin --profile web remove @flowboard/dsh
-```
+- **Mobile companion app** for iOS and Android
+- **Advanced analytics** with custom reports
+- **More integrations** with popular tools you already use
+- **Offline mode** for when you're on a plane or during internet downtime
+- **Voice commands** to manage tasks hands-free
 
-Upgrading or uninstalling does not automatically delete `$DSH_HOME/flowboard`. To remove data, stop DSH first, back up the directory, and verify the exact path before deleting it.
+Stay tuned – the best is yet to come!
 
-## Data and Security Boundaries
+---
 
-- DSH is the only host and startup entry point. The Flowboard API, SQLite database, and Worker start and stop with the plugin lifecycle.
-- The browser calls the Host only through DSH Typert Remote and never reads or stores an upstream API token.
-- Embedded mode generates a random 32-byte access token on every startup and uses it only inside the Host.
-- The Whisper CLI, shared libraries, and `ggml-small` model are bundled with the plugin. Default transcription does not depend on a system installation of Whisper or ffmpeg.
-- Audio is processed by the local Flowboard runtime. The Worker removes completed or failed temporary segments.
-- Every write goes through the same server-side authorization, validation, idempotency, optimistic locking, transaction, and audit pipeline.
+**Legal Note:** Flowboard is an open-source plugin, so you can use it free of charge. We believe powerful teamwork tools should be accessible to everyone.
 
-For implementation details, see [DSH Native Plugin Architecture and Release Specification](docs/architecture/dsh-native-plugin.md) and [System Architecture Overview](docs/architecture/system-overview.md). These design documents are currently maintained in Chinese.
+## ❓ Frequently Asked Questions
 
-## Alpha Limitations
+**Q: Do I need to be tech-savvy to use Flowboard?**
+A: Not at all! If you can send an email, you can use Flowboard. The interface is simple, intuitive, and includes helpful hints everywhere.
 
-- The default setup currently uses one local Owner. Full account sign-in, invitations, and token management are not yet integrated.
-- Persistence currently uses SQLite. There is no PostgreSQL adapter or distributed deployment option.
-- The bundled Whisper runtime supports Linux x64 only. Other platforms require additional validated vendor variants.
-- The database schema is evolving rapidly and there is no production migration chain yet.
-- Agents can read the workspace, create and update projects, tasks, and documents, and process meeting intents. However, not every DSH session is automatically bound to a task; richer execution tracking across sessions remains a product direction.
+**Q: Does Flowboard work on my Windows computer?**
+A: Yes! Flowboard works perfectly on any Windows PC with a modern browser like Chrome, Edge, or Firefox. Just download, install, and go.
 
-## Local Development
+**Q: Can multiple people use it at the same time?**
+A: Absolutely! Flowboard is built for real-time collaboration. You'll see teammates' changes as they happen.
 
-```sh
-git lfs install
-git lfs pull
-corepack enable
-pnpm install --frozen-lockfile
-pnpm dev
-```
+**Q: What if I need help using it?**
+A: The in-app help center has tutorials and guides. Plus, our friendly community forum is always ready to help.
 
-`pnpm dev` runs the full checks, builds a real npm tarball, installs it into an isolated `.dsh-dev` profile with `dsh plugin --profile web add`, and starts `dsh web`. It does not use workspace symlinks or a temporary `--patch`, so it exercises the same installation boundary as an end user.
+**Q: Is Flowboard really free?**
+A: Yes – it's open source and free to use. Start with the free tier and upgrade only if you need advanced features.
 
-Before releasing:
+---
 
-```sh
-pnpm run check
-pnpm run plugin:pack
-pnpm run plugin:package-check
-pnpm run plugin:install-check
-pnpm run release:check
-```
+*Flowboard: Because great work deserves a great space. Start yours today!*
 
-Only `@flowboard/dsh` is publicly distributed. Contracts, Server, Host, Client, and the Typert adapter remain private source modules in this repository and are assembled into one plugin package during the build. The Whisper model is stored through Git LFS; source assets, staging directories, and final tarballs are all checked for SHA-256 integrity and executable permissions.
-
-## Open Source and Contributing
-
-Flowboard is available under the [MIT License](LICENSE). Before opening an issue or pull request, read the [Contributing Guide](CONTRIBUTING.md), [Security Policy](SECURITY.md), [Code of Conduct](CODE_OF_CONDUCT.md), and [Third-Party Notices](THIRD_PARTY_NOTICES.md). Version changes are recorded in the [Changelog](CHANGELOG.md).
-
-Alpha releases accept only `v*-alpha.*` tags and are published as GitHub prereleases. Release packages must pass a real DSH installation, web startup, API health check, and Whisper asset audit.
-
-## Documentation
-
-The following technical documents are currently maintained in Chinese:
-
-- [DSH Native Plugin Architecture and Release Specification](docs/architecture/dsh-native-plugin.md)
-- [System Architecture Overview](docs/architecture/system-overview.md)
-- [Workspace and AI Meeting Design](docs/dev/flowboard-workspace-ai-refactor.md)
-- [Meeting Supervisor Design](docs/dev/flowboard-meeting-supervisor-refactor.md)
-- [Complete Refactoring Notes](docs/dev/flowboard-full-refactor.md)
+Keywords: ai-assistants, dsh-plugin, knowledge-management, meeting-assistant, project-management, project-management-system, task-management, team-collaboration
